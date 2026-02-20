@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <deque>
+#include "adj.h"
 #include <Eigen/Dense>
 
 struct Landscape
@@ -14,7 +16,7 @@ struct Landscape
       {
         balls[i].parent_set = this;
       }
-      conn.resize((num_balls*(num_balls+1))/2);
+      conn.resize(num_balls); // defaults to disconnected
     }
     std::string name;
     struct Ball // supports oriented spheres and oriented planes
@@ -22,41 +24,56 @@ struct Landscape
       Eigen::Vector3d dir;
       double dist;
       double curvature;
-      Set *parent_set;  // indexes sets list
-      int type;      // indexes types list
+      Set *parent_set; 
+      struct Type *type;      
       int dest_ball; // indexes Type's sphere list
     };
     std::vector<Ball> balls;
-    std::vector<int> conn; // connectivity
-    int &connection(int i, int j) { return i >= j ? conn[(i * (i + 1) / 2) + j] : conn[(j * (j + 1) / 2) + i]; }  
+    Adj conn; // connectivity. -1=kissing, 0 is disconnected
     void applyConnectivity();
   };
-  std::vector<Set> sets;
+  std::deque<Set> sets;
 
   struct Type
   {
-    Type(std::vector<int> set_connectivity, int ball_id)
+    Type(const Adj &set_connectivity, int ball_id)
     {
-
+      int n = set_connectivity.size();
+      for (int i = 0; i<n; i++)
+      {
+        if (set_connectivity(i, ball_id) > 0)
+        {
+          // Bah, to get a comparable conn vector we need to order the 
+          // rows and columns in a unique way....
+          // I wonder if there is a standard way to do this
+        }
+      }
     }
-    std::vector<int> conn;
-    std::vector<Eigen::Vector2i> balls; // sets id, balls id
+    Adj conn;
+    std::vector<Set::Ball *> balls; // sets id, balls id
   };
-  std::vector<Type> types;
+  std::deque<Type> types;
 
-  // do we tell type to pull in a new type from a set?
-  // or do we tell set to add in a type?
   void addSetToTypes(Set &set)
   {
     for (int i = 0; i<(int)set.balls.size(); i++)
     { 
-      Type new_type(set.connection, i);
+      Type new_type(set.conn, i);
+      bool found = false;
       for (int j = 0; j<types.size(); j++)
       {
         if (types[i].conn == new_type.conn)
         {
-          
+          // new_type already exists, so add it in.
+          types[i].balls.push_back(&set.balls[i]);
+          found = true;
+          break;
         }
+      }
+      if (!found)
+      {
+        types.push_back(new_type);
+        types.back().balls.push_back(&set.balls[i]);
       }
     }
   }
