@@ -3,25 +3,6 @@
 
 int main()
 {
-  // Example: A simple 3-node path 0-1-2
-  std::vector<int> G1 = {0, 1, 0, 0, 1, 0};
-  Adj g1;
-  g1.data = G1;
-  std::vector<int> G2 = {0, 1, 0, 1, 0, 0};
-  Adj g2;
-  g2.data = G2;
-  std::string hash1 = g1.get_wl_hash();
-  std::string hash2 = g2.get_wl_hash();
-
-  std::cout << "Graph 1 Hash: " << hash1 << std::endl;
-  std::cout << "Graph 2 Hash: " << hash2 << std::endl;
-
-  if (hash1 == hash2) {
-      std::cout << "The graphs are likely isomorphic!" << std::endl;
-  } else {
-      std::cout << "The graphs are definitely different." << std::endl;
-  }
-
   // OK let's make some sets manually to start off with.
   Landscape land;
   land.sets.push_back(Landscape::Set("tree", 6));

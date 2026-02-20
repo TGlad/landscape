@@ -39,13 +39,21 @@ struct Landscape
     Type(const Adj &set_connectivity, int ball_id)
     {
       int n = set_connectivity.size();
+      std::vector<int> is;
       for (int i = 0; i<n; i++)
       {
-        if (set_connectivity(i, ball_id) > 0)
+        if (set_connectivity(i, ball_id) > 0 || i==ball_id)
+          is.push_back(i);
+      }
+      conn.resize((int)is.size());
+      
+      for (int i = 0; i<(int)is.size(); i++)
+      {
+        int I = is[i];
+        for (int j = 0; j<(int)is.size(); j++)
         {
-          // Bah, to get a comparable conn vector we need to order the 
-          // rows and columns in a unique way....
-          // I wonder if there is a standard way to do this
+          int J = is[j];
+          conn(i,j) = std::max(0, set_connectivity(I, J)); // kissing points ignored
         }
       }
     }
@@ -62,10 +70,10 @@ struct Landscape
       bool found = false;
       for (int j = 0; j<types.size(); j++)
       {
-        if (types[i].conn == new_type.conn)
+        if (types[j].conn == new_type.conn)
         {
           // new_type already exists, so add it in.
-          types[i].balls.push_back(&set.balls[i]);
+          types[j].balls.push_back(&set.balls[i]);
           found = true;
           break;
         }
