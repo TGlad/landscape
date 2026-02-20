@@ -38,7 +38,10 @@ void Landscape::matchUpDestinationBalls()
     for (auto &ball: set.balls)
     {
       if (ball.dest_set == "") // standard recursion
+      {
         ball.dest_ball = &ball;
+        continue;
+      }
       const Type *type = ball.type;
       Set::Ball *dest_ball = nullptr;
       bool found_ball = false;
