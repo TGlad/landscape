@@ -7,6 +7,7 @@
 
 struct Landscape
 {
+  struct Type; // forward declaration so Set::Ball::type resolves to Landscape::Type
   struct Set
   {
     Set(const std::string &name, int num_balls) : name(name) 
@@ -24,9 +25,13 @@ struct Landscape
       Eigen::Vector3d dir;
       double dist;
       double curvature;
+      std::string dest_set;
+      int dest_ball_id {-1}; // -1 will pick the first in the set that works
+
+      // auto-set
       Set *parent_set; 
-      struct Type *type;      
-      int dest_ball; // indexes Type's sphere list
+      Type *type;
+      Ball *dest_ball; 
     };
     std::vector<Ball> balls;
     Adj conn; // connectivity. -1=kissing, 0 is disconnected
@@ -62,27 +67,7 @@ struct Landscape
   };
   std::deque<Type> types;
 
-  void addSetToTypes(Set &set)
-  {
-    for (int i = 0; i<(int)set.balls.size(); i++)
-    { 
-      Type new_type(set.conn, i);
-      bool found = false;
-      for (int j = 0; j<types.size(); j++)
-      {
-        if (types[j].conn == new_type.conn)
-        {
-          // new_type already exists, so add it in.
-          types[j].balls.push_back(&set.balls[i]);
-          found = true;
-          break;
-        }
-      }
-      if (!found)
-      {
-        types.push_back(new_type);
-        types.back().balls.push_back(&set.balls[i]);
-      }
-    }
-  }
+  void addSetToTypes(Set &set);
+
+  void matchUpDestinationBalls();
 };
