@@ -65,37 +65,44 @@ int main()
   shell_tree.applyConnectivity();
   land.addSetToTypes(shell_tree);
 
-
-
-  land.sets.push_back(Landscape::Set("shell-sponge", 6));
-  Landscape::Set &shell_sponge = land.sets.back();
+  land.sets.push_back(Landscape::Set("shell-shell", 6));
+  Landscape::Set &shell_shell = land.sets.back();
   // octahedron of order 3, so 0=top, 1,2,3,4 is mid and 5 is base
   last_i = 4;
   for (int i = 1; i<=4; i++)
   {
-    shell_sponge.conn(0, i) = 3;
-    shell_sponge.conn(5, i) = 3;
+    shell_shell.conn(0, i) = 3;
+    shell_shell.conn(5, i) = 3;
     // around the meridian
-    shell_sponge.conn(last_i, i) = 3;
+    shell_shell.conn(last_i, i) = 3;
     last_i = i;
   }
-  shell_sponge.conn(0,5) = 4; // make it a sponge
   // now come up with some approximate locations
-  shell_sponge.balls[0].dir = Eigen::Vector3d(0,0,1);
-  shell_sponge.balls[1].dir = Eigen::Vector3d(1,0,0);
-  shell_sponge.balls[2].dir = Eigen::Vector3d(0,1,0);
-  shell_sponge.balls[3].dir = Eigen::Vector3d(-1,0,0);
-  shell_sponge.balls[4].dir = Eigen::Vector3d(0,-1,0);
-  shell_sponge.balls[5].dir = Eigen::Vector3d(0,0,-1);
+  shell_shell.balls[0].dir = Eigen::Vector3d(0,0,1);
+  shell_shell.balls[1].dir = Eigen::Vector3d(1,0,0);
+  shell_shell.balls[2].dir = Eigen::Vector3d(0,1,0);
+  shell_shell.balls[3].dir = Eigen::Vector3d(-1,0,0);
+  shell_shell.balls[4].dir = Eigen::Vector3d(0,-1,0);
+  shell_shell.balls[5].dir = Eigen::Vector3d(0,0,-1);
   for (int i = 0; i<6; i++)
   {
-    shell_sponge.balls[i].dist = 1.0;
-    shell_sponge.balls[i].curvature = 1.0;
+    shell_shell.balls[i].dist = 1.0;
+    shell_shell.balls[i].curvature = 1.0;
   }
+  shell_shell.balls[0].dist = 0.1;
+  shell_shell.balls[5].dist = 0.1;
+  shell_shell.balls[0].curvature = 4.0;
+  shell_shell.balls[5].curvature = 4.0;
+  shell_shell.applyConnectivity();
+  land.addSetToTypes(shell_shell);  
+
+
+  land.sets.push_back(Landscape::Set("shell-sponge", 6));
+  Landscape::Set &shell_sponge = land.sets.back();
+  shell_sponge = shell_shell; // shortcut
+  shell_sponge.conn(0,5) = 4; // make it a sponge
   shell_sponge.balls[0].dist = 0.01;
   shell_sponge.balls[5].dist = 0.01;
-  shell_sponge.balls[0].curvature = 4.0;
-  shell_sponge.balls[5].curvature = 4.0;
   shell_sponge.applyConnectivity();
   land.addSetToTypes(shell_sponge);  
 
