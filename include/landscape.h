@@ -36,6 +36,7 @@ struct Landscape
     std::vector<Ball> balls;
     Adj conn; // connectivity. -1=kissing, 0 is disconnected
     void applyConnectivity();
+    bool verifyConnectivity(double tol = 1e-4) const;
   };
   std::deque<Set> sets;
 

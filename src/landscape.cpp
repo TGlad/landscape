@@ -1,4 +1,6 @@
 #include "landscape.h"
+#include <numeric>
+#include <random>
 
 static const double pi = std::acos(-1.0);
 
@@ -19,12 +21,20 @@ void Landscape::Set::applyConnectivity()
   const double damping = 1e-10;
   const double k = 0.0; // minimum required gap beyond ri+rj for disjoint pairs
 
-  for (int it = 0; it < 200; it++)
+  // Build a list of all active constraint pairs and shuffle each iteration
+  // to avoid Gauss-Seidel ordering bias (earlier-indexed balls dominating).
+  int n = (int)balls.size();
+  std::vector<std::pair<int,int>> pairs;
+  for (int i = 0; i < n; i++)
+    for (int j = 0; j < i; j++)
+      pairs.push_back({i, j});
+  std::mt19937 rng(42);
+
+  for (int it = 0; it < 2000; it++)
   {
-    for (int i = 0; i < (int)balls.size(); i++)
+    std::shuffle(pairs.begin(), pairs.end(), rng);
+    for (auto [i, j] : pairs)
     {
-      for (int j = 0; j < i; j++)
-      {
         int order = conn(i, j);
 
         Ball &bi = balls[i];
@@ -68,22 +78,51 @@ void Landscape::Set::applyConnectivity()
             // cos θ = f = (d² - ri² - rj²) / (2 ri rj)
             double d2 = d * d;
             double cos_theta = (d2 - ri*ri - rj*rj) / (2.0 * ri * rj);
-            if (cos_theta >= 1.0 || cos_theta <= -1.0) continue; // no intersection
-            double theta = std::acos(cos_theta);
-            double sin_theta = std::sin(theta);
-            if (std::abs(sin_theta) < 1e-10) continue;
-            error = pi / (double)order - theta;
-            double inv_sin = 1.0 / sin_theta;
-            Eigen::Vector3d dfdCi =  Delta / (ri * rj);  // df/dCi = Δ/(ri rj)
-            Eigen::Vector3d dfdCj = -dfdCi;
-            double dfdri = -(ri*ri + d2 - rj*rj) / (2.0 * ri*ri * rj);
-            double dfdrj = -(rj*rj + d2 - ri*ri) / (2.0 * rj*rj * ri);
-            g_dist_i = inv_sin * dfdCi.dot(bi.dir);
-            g_dist_j = inv_sin * dfdCj.dot(bj.dir);
-            g_curv_i = inv_sin * (dfdri + dfdCi.dot(bi.dir)) * (-1.0 / (bi.curvature * bi.curvature));
-            g_curv_j = inv_sin * (dfdrj + dfdCj.dot(bj.dir)) * (-1.0 / (bj.curvature * bj.curvature));
-            g_dir_i = inv_sin * (bi.dist + ri) * (dfdCi - dfdCi.dot(bi.dir) * bi.dir);
-            g_dir_j = inv_sin * (bj.dist + rj) * (dfdCj - dfdCj.dot(bj.dir) * bj.dir);
+            if (cos_theta >= 1.0)
+            {
+              // Spheres don't intersect yet (too far apart): pull them to kissing distance
+              // as a fallback so subsequent iterations can apply the angle constraint.
+              error = d - (ri + rj);
+              Eigen::Vector3d dddCi =  Delta / d;
+              Eigen::Vector3d dddCj = -Delta / d;
+              g_dist_i = dddCi.dot(bi.dir);
+              g_dist_j = dddCj.dot(bj.dir);
+              g_curv_i = (dddCi.dot(bi.dir) - 1.0) * (-1.0 / (bi.curvature * bi.curvature));
+              g_curv_j = (dddCj.dot(bj.dir) - 1.0) * (-1.0 / (bj.curvature * bj.curvature));
+              g_dir_i = (bi.dist + ri) * (dddCi - dddCi.dot(bi.dir) * bi.dir);
+              g_dir_j = (bj.dist + rj) * (dddCj - dddCj.dot(bj.dir) * bj.dir);
+            }
+            else if (cos_theta <= -1.0)
+            {
+              // One sphere inside the other: push them apart to kissing distance
+              error = d - (ri + rj);
+              Eigen::Vector3d dddCi =  Delta / d;
+              Eigen::Vector3d dddCj = -Delta / d;
+              g_dist_i = dddCi.dot(bi.dir);
+              g_dist_j = dddCj.dot(bj.dir);
+              g_curv_i = (dddCi.dot(bi.dir) - 1.0) * (-1.0 / (bi.curvature * bi.curvature));
+              g_curv_j = (dddCj.dot(bj.dir) - 1.0) * (-1.0 / (bj.curvature * bj.curvature));
+              g_dir_i = (bi.dist + ri) * (dddCi - dddCi.dot(bi.dir) * bi.dir);
+              g_dir_j = (bj.dist + rj) * (dddCj - dddCj.dot(bj.dir) * bj.dir);
+            }
+            else
+            {
+              double theta = std::acos(cos_theta);
+              double sin_theta = std::sin(theta);
+              if (std::abs(sin_theta) < 1e-10) continue;
+              error = pi / (double)order - theta;
+              double inv_sin = 1.0 / sin_theta;
+              Eigen::Vector3d dfdCi =  Delta / (ri * rj);  // df/dCi = Δ/(ri rj)
+              Eigen::Vector3d dfdCj = -dfdCi;
+              double dfdri = -(ri*ri + d2 - rj*rj) / (2.0 * ri*ri * rj);
+              double dfdrj = -(rj*rj + d2 - ri*ri) / (2.0 * rj*rj * ri);
+              g_dist_i = inv_sin * dfdCi.dot(bi.dir);
+              g_dist_j = inv_sin * dfdCj.dot(bj.dir);
+              g_curv_i = inv_sin * (dfdri + dfdCi.dot(bi.dir)) * (-1.0 / (bi.curvature * bi.curvature));
+              g_curv_j = inv_sin * (dfdrj + dfdCj.dot(bj.dir)) * (-1.0 / (bj.curvature * bj.curvature));
+              g_dir_i = inv_sin * (bi.dist + ri) * (dfdCi - dfdCi.dot(bi.dir) * bi.dir);
+              g_dir_j = inv_sin * (bj.dist + rj) * (dfdCj - dfdCj.dot(bj.dir) * bj.dir);
+            } // end intersecting else
           }
         }
         else if (bi.curvature == 0.0 && bj.curvature == 0.0)
@@ -149,9 +188,103 @@ void Landscape::Set::applyConnectivity()
         bj.dir       += step * g_dir_j;  bj.dir.normalize();
         bj.dist      += step * g_dist_j;
         bj.curvature += step * g_curv_j;
+    } // end pairs loop
+  } // end iterations
+}
+
+bool Landscape::Set::verifyConnectivity(double tol) const
+{
+  bool all_pass = true;
+  int n = (int)balls.size();
+  for (int i = 0; i < n; i++)
+  {
+    for (int j = 0; j < i; j++)
+    {
+      int order = conn(i, j);
+      const Ball &bi = balls[i];
+      const Ball &bj = balls[j];
+
+      double actual = 0, target = 0;
+      const char *label = "angle";
+      bool ok = false;
+
+      if (order == 0)
+      {
+        // Separation: check gap >= k
+        if (bi.curvature != 0.0 && bj.curvature != 0.0)
+        {
+          double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
+          Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
+          Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
+          actual = (Ci - Cj).norm();
+          target = ri + rj; // k=0; gap = actual - target >= 0
+          label = "gap";
+          ok = (actual - target) >= -tol;
+        }
+        else if (bi.curvature != 0.0 || bj.curvature != 0.0)
+        {
+          const Ball &sphere = (bi.curvature != 0.0) ? bi : bj;
+          const Ball &plane  = (bi.curvature != 0.0) ? bj : bi;
+          double r = 1.0 / sphere.curvature;
+          Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
+          actual = plane.dir.dot(C) - plane.dist;
+          target = r; // sphere centre must be at least r beyond the plane
+          label = "gap";
+          ok = (actual - target) >= -tol;
+        }
+        else
+        {
+          continue; // plane-plane separation not meaningful
+        }
+        if (!ok) all_pass = false;
+        std::cout << "  [" << name << "] balls (" << i << "," << j << ") order=0"
+                  << " " << label << ": min=" << target << " actual=" << actual
+                  << " gap=" << (actual - target) << (ok ? "  OK" : "  FAIL") << "\n";
+        continue;
       }
+
+      if (bi.curvature != 0.0 && bj.curvature != 0.0)
+      {
+        double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
+        Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
+        Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
+        double d = (Ci - Cj).norm();
+        if (order == -1)
+        {
+          label = "dist"; target = ri + rj; actual = d;
+        }
+        else
+        {
+          double cos_theta = (d*d - ri*ri - rj*rj) / (2.0 * ri * rj);
+          target = pi / (double)order;
+          actual = std::acos(std::clamp(cos_theta, -1.0, 1.0));
+        }
+      }
+      else if (bi.curvature == 0.0 && bj.curvature == 0.0)
+      {
+        target = pi / (double)order;
+        actual = std::acos(std::clamp(bi.dir.dot(bj.dir), -1.0, 1.0));
+      }
+      else
+      {
+        const Ball &sphere = (bi.curvature != 0.0) ? bi : bj;
+        const Ball &plane  = (bi.curvature != 0.0) ? bj : bi;
+        double r = 1.0 / sphere.curvature;
+        Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
+        double cos_targ = (order == -1) ? 1.0 : std::cos(pi / (double)order);
+        target = r * cos_targ;
+        actual = plane.dir.dot(C) - plane.dist;
+        label = "dist";
+      }
+
+      ok = std::abs(actual - target) <= tol;
+      if (!ok) all_pass = false;
+      std::cout << "  [" << name << "] balls (" << i << "," << j << ") order=" << order
+                << " " << label << ": target=" << target << " actual=" << actual
+                << " err=" << (actual - target) << (ok ? "  OK" : "  FAIL") << "\n";
     }
   }
+  return all_pass;
 }
 
 void Landscape::addSetToTypes(Set &set)

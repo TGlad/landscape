@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include "landscape.h"
 
 int main()
@@ -31,6 +32,7 @@ int main()
     tree_tree.balls[i].curvature = 1.0;
   }
   tree_tree.applyConnectivity();
+  tree_tree.verifyConnectivity();
   land.addSetToTypes(tree_tree);
 
 
@@ -63,6 +65,7 @@ int main()
   shell_tree.balls[4].dist = 0.3;
   shell_tree.balls[4].curvature = 8.0;
   shell_tree.applyConnectivity();
+  shell_tree.verifyConnectivity();
   land.addSetToTypes(shell_tree);
 
   land.sets.push_back(Landscape::Set("shell-shell", 6));
@@ -94,6 +97,7 @@ int main()
   shell_shell.balls[0].curvature = 4.0;
   shell_shell.balls[5].curvature = 4.0;
   shell_shell.applyConnectivity();
+  shell_shell.verifyConnectivity();
   land.addSetToTypes(shell_shell);  
 
 
@@ -104,6 +108,7 @@ int main()
   shell_sponge.balls[0].dist = 0.01;
   shell_sponge.balls[5].dist = 0.01;
   shell_sponge.applyConnectivity();
+  shell_sponge.verifyConnectivity();
   land.addSetToTypes(shell_sponge);  
 
   land.matchUpDestinationBalls();
