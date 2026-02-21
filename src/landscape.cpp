@@ -12,58 +12,143 @@ void Landscape::Set::applyConnectivity()
   // = 5 * n unknowns
   // there are up to n(n-1)/2 constraints
 
-  // gradient descent with SOR, applies each constraint repeatedly
-  for (int it = 0; it<10; it++)
+  // Gauss-Seidel iterated least squares: for each pair constraint compute the gradient of the
+  // error w.r.t. the state (dir, dist, curvature) and apply the minimum-norm correction.
+  // Kissing (order=-1) uses a distance constraint to avoid 1/sin(0) instability.
+  // Sphere-plane uses a linear signed-distance constraint (always well-posed).
+  const double damping = 1e-10;
+  const double k = 0.0; // minimum required gap beyond ri+rj for disjoint pairs
+
+  for (int it = 0; it < 200; it++)
   {
-    for (int i = 0; i<(int)balls.size(); i++)
+    for (int i = 0; i < (int)balls.size(); i++)
     {
-      for (int j = 0; j<i; j++)
+      for (int j = 0; j < i; j++)
       {
-        if (conn(i,j) == 0) // actually we need to ensure it stays out, which is a unilateral constraint
-          continue;
-        int order = conn(i,j);
-        double targ_angle = order==-1 ? 0.0 : pi/(double)order;
-        double angle = [&]() -> double 
+        int order = conn(i, j);
+
+        Ball &bi = balls[i];
+        Ball &bj = balls[j];
+
+        // Gradients of error w.r.t. state: de/d(dir) [tangent], de/d(dist), de/d(curvature)
+        Eigen::Vector3d g_dir_i = Eigen::Vector3d::Zero(), g_dir_j = Eigen::Vector3d::Zero();
+        double g_dist_i = 0, g_curv_i = 0, g_dist_j = 0, g_curv_j = 0;
+        double error = 0;
+
+        if (bi.curvature != 0.0 && bj.curvature != 0.0)
         {
-          const Ball &bi = balls[i];
-          const Ball &bj = balls[j];
-          if (bi.curvature != 0.0 && bj.curvature != 0.0) 
+          // ── Sphere–sphere ──────────────────────────────────────────────────
+          double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
+          Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
+          Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
+          Eigen::Vector3d Delta = Ci - Cj;
+          double d = Delta.norm();
+          if (d < 1e-12) continue;
+
+          if (order <= 0)
           {
-            // sphere-sphere: cos θ = (d² - ri² - rj²) / (2 ri rj)
-            double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
-            Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
-            Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
-            double d2 = (Ci - Cj).squaredNorm();
-            double cos_theta = (d2 - ri*ri - rj*rj) / (2.0*ri*rj);
-            if (cos_theta > 1.0) 
-              return std::numeric_limits<double>::quiet_NaN(); // non-intersecting (too far apart)
-            if (cos_theta < -1.0) 
-              return std::numeric_limits<double>::quiet_NaN(); // non-intersecting (one inside the other)
-            return std::acos(cos_theta);
-          } 
-          else if (bi.curvature == 0.0 && bj.curvature == 0.0) 
+            // Distance constraint: covers both kissing (order=-1, targ=ri+rj)
+            // and separation (order=0, targ=ri+rj+k, unilateral).
+            double targ_d = ri + rj + (order == 0 ? k : 0.0);
+            error = d - targ_d;
+            if (order == 0 && error >= 0.0) continue; // unilateral: skip if already separated
+            Eigen::Vector3d dddCi =  Delta / d;
+            Eigen::Vector3d dddCj = -Delta / d;
+            g_dist_i = dddCi.dot(bi.dir);
+            g_dist_j = dddCj.dot(bj.dir);
+            // de/dkappa: chain through both C (via r=1/kappa) and the target
+            g_curv_i = (dddCi.dot(bi.dir) - 1.0) * (-1.0 / (bi.curvature * bi.curvature));
+            g_curv_j = (dddCj.dot(bj.dir) - 1.0) * (-1.0 / (bj.curvature * bj.curvature));
+            g_dir_i = (bi.dist + ri) * (dddCi - dddCi.dot(bi.dir) * bi.dir);
+            g_dir_j = (bj.dist + rj) * (dddCj - dddCj.dot(bj.dir) * bj.dir);
+          }
+          else
           {
-            // plane-plane: cos θ = ni · nj
-            return std::acos(std::clamp(bi.dir.dot(bj.dir), -1.0, 1.0));
+            // Angle constraint: θ = π/order
+            // cos θ = f = (d² - ri² - rj²) / (2 ri rj)
+            double d2 = d * d;
+            double cos_theta = (d2 - ri*ri - rj*rj) / (2.0 * ri * rj);
+            if (cos_theta >= 1.0 || cos_theta <= -1.0) continue; // no intersection
+            double theta = std::acos(cos_theta);
+            double sin_theta = std::sin(theta);
+            if (std::abs(sin_theta) < 1e-10) continue;
+            error = pi / (double)order - theta;
+            double inv_sin = 1.0 / sin_theta;
+            Eigen::Vector3d dfdCi =  Delta / (ri * rj);  // df/dCi = Δ/(ri rj)
+            Eigen::Vector3d dfdCj = -dfdCi;
+            double dfdri = -(ri*ri + d2 - rj*rj) / (2.0 * ri*ri * rj);
+            double dfdrj = -(rj*rj + d2 - ri*ri) / (2.0 * rj*rj * ri);
+            g_dist_i = inv_sin * dfdCi.dot(bi.dir);
+            g_dist_j = inv_sin * dfdCj.dot(bj.dir);
+            g_curv_i = inv_sin * (dfdri + dfdCi.dot(bi.dir)) * (-1.0 / (bi.curvature * bi.curvature));
+            g_curv_j = inv_sin * (dfdrj + dfdCj.dot(bj.dir)) * (-1.0 / (bj.curvature * bj.curvature));
+            g_dir_i = inv_sin * (bi.dist + ri) * (dfdCi - dfdCi.dot(bi.dir) * bi.dir);
+            g_dir_j = inv_sin * (bj.dist + rj) * (dfdCj - dfdCj.dot(bj.dir) * bj.dir);
+          }
+        }
+        else if (bi.curvature == 0.0 && bj.curvature == 0.0)
+        {
+          // ── Plane–plane ────────────────────────────────────────────────────
+          // Kissing parallel planes and separation are degenerate in 3D; only angle makes sense.
+          if (order <= 0) continue;
+          double dot = bi.dir.dot(bj.dir);
+          double theta = std::acos(std::clamp(dot, -1.0, 1.0));
+          double sin_theta = std::sin(theta);
+          if (std::abs(sin_theta) < 1e-10) continue;
+          error = pi / (double)order - theta;
+          double inv_sin = 1.0 / sin_theta;
+          g_dir_i = inv_sin * (bj.dir - dot * bi.dir);
+          g_dir_j = inv_sin * (bi.dir - dot * bj.dir);
+          // dist and curvature don't enter the plane-plane angle
+        }
+        else
+        {
+          // ── Sphere–plane ───────────────────────────────────────────────────
+          // All orders use the same signed-distance constraint:
+          //   n·C - d_plane = r·cos_targ
+          // cos_targ encodes the target angle (1 for kissing/separation, cos(π/order) otherwise).
+          // For separation (order=0) an extra gap k is added and the constraint is unilateral.
+          const bool i_is_sphere = (bi.curvature != 0.0);
+          Ball &sphere = i_is_sphere ? bi : bj;
+          Ball &plane  = i_is_sphere ? bj : bi;
+          double r = 1.0 / sphere.curvature;
+          Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
+          double signed_dist = plane.dir.dot(C) - plane.dist;
+          double cos_targ = (order <= 0) ? 1.0 : std::cos(pi / (double)order);
+          double targ_dist = r * cos_targ + (order == 0 ? k : 0.0);
+          error = signed_dist - targ_dist;
+          if (order == 0 && error >= 0.0) continue; // unilateral separation
+
+          double g_dist_s = plane.dir.dot(sphere.dir);
+          // d(targ_dist)/dr = cos_targ (the +k term is independent of r)
+          double g_curv_s = (plane.dir.dot(sphere.dir) - cos_targ) * (-1.0 / (sphere.curvature * sphere.curvature));
+          Eigen::Vector3d g_dir_s = (sphere.dist + r) * (plane.dir - plane.dir.dot(sphere.dir) * sphere.dir);
+          double g_dist_p = -1.0;
+          Eigen::Vector3d g_dir_p = C - plane.dir.dot(C) * plane.dir;
+
+          if (i_is_sphere) 
+          {
+            g_dist_i = g_dist_s; g_curv_i = g_curv_s; g_dir_i = g_dir_s;
+            g_dist_j = g_dist_p; g_curv_j = 0.0;      g_dir_j = g_dir_p;
           } 
           else 
           {
-            // sphere-plane: cos θ = (n_plane · C_sphere - dist_plane) / r_sphere
-            const Ball &sphere = (bi.curvature != 0.0) ? bi : bj;
-            const Ball &plane  = (bi.curvature != 0.0) ? bj : bi;
-            double r = 1.0 / sphere.curvature;
-            Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
-            return std::acos(std::clamp((plane.dir.dot(C) - plane.dist) / r, -1.0, 1.0));
+            g_dist_j = g_dist_s; g_curv_j = g_curv_s; g_dir_j = g_dir_s;
+            g_dist_i = g_dist_p; g_curv_i = 0.0;      g_dir_i = g_dir_p;
           }
-        }();
-        if (std::isnan(angle))
-          continue; // spheres don't intersect, no constraint to apply
-        double error = targ_angle - angle;
+        }
 
-        /*
-        double dAngle_dDist = ;
-        Eigen;:Vector3d dAngle_dDir = ;
-        double dAngle_dCurv = ;*/
+        // Minimum-norm correction: δstate = -(error / ||g||²) * g
+        double g2 = g_dir_i.squaredNorm() + g_dist_i*g_dist_i + g_curv_i*g_curv_i
+                  + g_dir_j.squaredNorm() + g_dist_j*g_dist_j + g_curv_j*g_curv_j;
+        double step = -error / (g2 + damping);
+
+        bi.dir       += step * g_dir_i;  bi.dir.normalize();
+        bi.dist      += step * g_dist_i;
+        bi.curvature += step * g_curv_i;
+        bj.dir       += step * g_dir_j;  bj.dir.normalize();
+        bj.dist      += step * g_dist_j;
+        bj.curvature += step * g_curv_j;
       }
     }
   }
