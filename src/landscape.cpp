@@ -160,47 +160,10 @@ void Landscape::Set::addLeafBall(int i, int j, int k)
   leaf.dist       = Cx.norm() - rx;
   leaf.curvature  = 1.0 / rx;
   leaf_balls.push_back(leaf);
-
-  // ── Validation ────────────────────────────────────────────────────────────
-  bool ok = true;
-  for (int row = 0; row < 3; row++)
-  {
-    const Ball &b = balls[idx[row]];
-    double err;
-    if (b.curvature != 0.0)
-    {
-      double rb = 1.0 / b.curvature;
-      Eigen::Vector3d Cb = b.dir * (b.dist + rb);
-      err = (Cx - Cb).squaredNorm() - (rx2 + rb * rb);
-    }
-    else
-      err = b.dir.dot(Cx) - b.dist;
-    bool ball_ok = std::abs(err) < 1e-6;
-    std::cout << "[addLeafBall3] ball " << idx[row]
-              << " ortho-err = " << err
-              << (ball_ok ? "  OK" : "  FAIL") << "\n";
-    if (!ball_ok) ok = false;
-  }
-  double plane_err = n.dot(Cx) - plane_d;
-  bool plane_ok = std::abs(plane_err) < 1e-6;
-  std::cout << "[addLeafBall3] plane-err = " << plane_err
-            << (plane_ok ? "  OK" : "  FAIL") << "\n";
-  if (!plane_ok) ok = false;
-  std::cout << "[addLeafBall3] rx = " << rx
-            << "  |Cx| = " << Cx.norm()
-            << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
 }
 
 void Landscape::Set::applyConnectivity()
 {
-  // the state is 
-  // Eigen::Vector3d dir;
-  //  double dist;
-  //  double curvature;
-  // on n balls   
-  // = 5 * n unknowns
-  // there are up to n(n-1)/2 constraints
-
   // Gauss-Seidel iterated least squares: for each pair constraint compute the gradient of the
   // error w.r.t. the state (dir, dist, curvature) and apply the minimum-norm correction.
   // Kissing (order=-1) uses a distance constraint to avoid 1/sin(0) instability.
