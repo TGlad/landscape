@@ -36,7 +36,6 @@ int main()
     tree_tree.balls[i].dist = 0.3;
     tree_tree.balls[i].curvature = 3.0;
   }
-//  tree_tree.addLeafBall(1,2,3);
   tree_tree.applyConnectivity();
   tree_tree.verifyConnectivity();
   tree_tree.addLeafBall(0,1,2,3);
