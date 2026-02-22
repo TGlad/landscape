@@ -34,9 +34,13 @@ struct Landscape
       Ball *dest_ball; 
     };
     std::vector<Ball> balls;
+    std::vector<Ball> leaf_balls; // used to represent set at leaf
     Adj conn; // connectivity. -1=kissing, 0 is disconnected
+    bool leaf_union; // union if true, else intersection
     void applyConnectivity();
     bool verifyConnectivity(double tol = 1e-4) const;
+    void addLeafBall(int i, int j, int k, int l);
+    void addLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
   };
   std::deque<Set> sets;
 
@@ -71,4 +75,5 @@ struct Landscape
   void addSetToTypes(Set &set);
 
   void matchUpDestinationBalls();
+  void outputCode(const std::string &filename = "landscape.glsl") const;
 };

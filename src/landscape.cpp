@@ -1,8 +1,195 @@
 #include "landscape.h"
+#include <fstream>
+#include <iomanip>
 #include <numeric>
 #include <random>
 
 static const double pi = std::acos(-1.0);
+
+void Landscape::Set::addLeafBall(int i, int j, int k, int l)
+{
+  // A sphere X orthogonal to sphere A satisfies |Cx-Ca|² = rx²+ra².
+  // Expanding with w = |Cx|²-rx²:  2*Ca·Cx - w = |Ca|²-ra²
+  // For a plane (curvature=0), 90° intersection means the center lies on the plane: n·Cx = dist
+  // Four balls → 4×4 linear system in (Cx.x, Cx.y, Cx.z, w).
+
+  const std::array<int,4> idx = {i, j, k, l};
+  Eigen::Matrix4d M;
+  Eigen::Vector4d rhs;
+
+  for (int row = 0; row < 4; row++)
+  {
+    const Ball &b = balls[idx[row]];
+    if (b.curvature != 0.0)
+    {
+      double r = 1.0 / b.curvature;
+      Eigen::Vector3d C = b.dir * (b.dist + r);
+      M(row, 0) = 2.0 * C.x();
+      M(row, 1) = 2.0 * C.y();
+      M(row, 2) = 2.0 * C.z();
+      M(row, 3) = -1.0;
+      rhs(row) = C.squaredNorm() - r * r;
+    }
+    else
+    {
+      // Plane: center of orthogonal sphere lies on the plane → n·Cx = dist
+      M(row, 0) = b.dir.x();
+      M(row, 1) = b.dir.y();
+      M(row, 2) = b.dir.z();
+      M(row, 3) = 0.0;
+      rhs(row) = b.dist;
+    }
+  }
+
+  Eigen::Vector4d sol = M.fullPivLu().solve(rhs);
+  Eigen::Vector3d Cx(sol(0), sol(1), sol(2));
+  double w   = sol(3);           // w = |Cx|² - rx²
+  double rx2 = Cx.squaredNorm() - w;
+
+  if (rx2 <= 0.0) 
+  {
+    std::cerr << "[addLeafBall] degenerate: rx² = " << rx2 << " (no real orthogonal sphere)\n";
+    return;
+  }
+
+  double rx = std::sqrt(rx2);
+  Ball leaf;
+  leaf.parent_set = this;
+  leaf.dir        = Cx.normalized();
+  leaf.dist       = Cx.norm() - rx;
+  leaf.curvature  = 1.0 / rx;
+  leaf_balls.push_back(leaf);
+
+  // ── Validation: check 90° intersection with each of the 4 balls ──────────
+  bool ok = true;
+  for (int row = 0; row < 4; row++)
+  {
+    const Ball &b = balls[idx[row]];
+    double err;
+    if (b.curvature != 0.0)
+    {
+      double rb = 1.0 / b.curvature;
+      Eigen::Vector3d Cb = b.dir * (b.dist + rb);
+      double d2 = (Cx - Cb).squaredNorm();
+      // orthogonality: |Cx-Cb|² == rx²+rb²
+      double target = rx2 + rb * rb;
+      err = d2 - target;
+    }
+    else
+    {
+      // plane orthogonality: n·Cx == dist
+      err = b.dir.dot(Cx) - b.dist;
+    }
+    bool ball_ok = std::abs(err) < 1e-6;
+    std::cout << "[addLeafBall] ball " << idx[row]
+              << " ortho-err = " << err
+              << (ball_ok ? "  OK" : "  FAIL") << "\n";
+    if (!ball_ok) ok = false;
+  }
+  std::cout << "[addLeafBall] rx = " << rx
+            << "  |Cx| = " << Cx.norm()
+            << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
+}
+
+void Landscape::Set::addLeafBall(int i, int j, int k)
+{
+  // Orthogonal sphere whose centre lies in the plane of the 3 ball centres.
+  // 3 orthogonality rows (same form as the 4-ball version) + 1 plane-constraint row.
+
+  const std::array<int,3> idx = {i, j, k};
+  Eigen::Matrix4d M;
+  Eigen::Vector4d rhs;
+
+  std::array<Eigen::Vector3d, 3> centers;
+  for (int row = 0; row < 3; row++)
+  {
+    const Ball &b = balls[idx[row]];
+    if (b.curvature != 0.0)
+    {
+      double r = 1.0 / b.curvature;
+      Eigen::Vector3d C = b.dir * (b.dist + r);
+      centers[row] = C;
+      M(row, 0) = 2.0 * C.x();
+      M(row, 1) = 2.0 * C.y();
+      M(row, 2) = 2.0 * C.z();
+      M(row, 3) = -1.0;
+      rhs(row) = C.squaredNorm() - r * r;
+    }
+    else
+    {
+      // Plane: orthogonal sphere centre lies on the plane; use closest point to origin for centre
+      centers[row] = b.dir * b.dist;
+      M(row, 0) = b.dir.x();
+      M(row, 1) = b.dir.y();
+      M(row, 2) = b.dir.z();
+      M(row, 3) = 0.0;
+      rhs(row) = b.dist;
+    }
+  }
+
+  // 4th row: Cx must lie in the plane of the 3 centres
+  Eigen::Vector3d n = (centers[1] - centers[0]).cross(centers[2] - centers[0]);
+  if (n.norm() < 1e-10)
+  {
+    std::cerr << "[addLeafBall3] degenerate: 3 centres are collinear\n";
+    return;
+  }
+  n.normalize();
+  double plane_d = n.dot(centers[0]);
+  M(3, 0) = n.x();
+  M(3, 1) = n.y();
+  M(3, 2) = n.z();
+  M(3, 3) = 0.0;
+  rhs(3) = plane_d;
+
+  Eigen::Vector4d sol = M.fullPivLu().solve(rhs);
+  Eigen::Vector3d Cx(sol(0), sol(1), sol(2));
+  double w   = sol(3);
+  double rx2 = Cx.squaredNorm() - w;
+
+  if (rx2 <= 0.0)
+  {
+    std::cerr << "[addLeafBall3] degenerate: rx\u00b2 = " << rx2 << " (no real orthogonal sphere)\n";
+    return;
+  }
+
+  double rx = std::sqrt(rx2);
+  Ball leaf;
+  leaf.parent_set = this;
+  leaf.dir        = Cx.normalized();
+  leaf.dist       = Cx.norm() - rx;
+  leaf.curvature  = 1.0 / rx;
+  leaf_balls.push_back(leaf);
+
+  // ── Validation ────────────────────────────────────────────────────────────
+  bool ok = true;
+  for (int row = 0; row < 3; row++)
+  {
+    const Ball &b = balls[idx[row]];
+    double err;
+    if (b.curvature != 0.0)
+    {
+      double rb = 1.0 / b.curvature;
+      Eigen::Vector3d Cb = b.dir * (b.dist + rb);
+      err = (Cx - Cb).squaredNorm() - (rx2 + rb * rb);
+    }
+    else
+      err = b.dir.dot(Cx) - b.dist;
+    bool ball_ok = std::abs(err) < 1e-6;
+    std::cout << "[addLeafBall3] ball " << idx[row]
+              << " ortho-err = " << err
+              << (ball_ok ? "  OK" : "  FAIL") << "\n";
+    if (!ball_ok) ok = false;
+  }
+  double plane_err = n.dot(Cx) - plane_d;
+  bool plane_ok = std::abs(plane_err) < 1e-6;
+  std::cout << "[addLeafBall3] plane-err = " << plane_err
+            << (plane_ok ? "  OK" : "  FAIL") << "\n";
+  if (!plane_ok) ok = false;
+  std::cout << "[addLeafBall3] rx = " << rx
+            << "  |Cx| = " << Cx.norm()
+            << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
+}
 
 void Landscape::Set::applyConnectivity()
 {
@@ -285,6 +472,146 @@ bool Landscape::Set::verifyConnectivity(double tol) const
     }
   }
   return all_pass;
+}
+
+void Landscape::outputCode(const std::string &filename) const
+{
+  std::ofstream out(filename);
+  if (!out) { std::cerr << "Failed to open " << filename << "\n"; return; }
+
+  // Sanitize a set name into a valid GLSL identifier
+  auto ident = [](const std::string &name) {
+    std::string s = name;
+    for (char &c : s) if (!std::isalnum(c)) c = '_';
+    return s;
+  };
+
+  // Build per-set offsets into the flat ball array
+  int num_sets = (int)sets.size();
+  std::vector<int> offsets(num_sets + 1, 0);
+  for (int si = 0; si < num_sets; si++)
+    offsets[si + 1] = offsets[si] + (int)sets[si].balls.size();
+  int total_balls = offsets[num_sets];
+
+  // Build per-set offsets into the flat leaf_ball array
+  std::vector<int> leaf_offsets(num_sets + 1, 0);
+  for (int si = 0; si < num_sets; si++)
+    leaf_offsets[si + 1] = leaf_offsets[si] + (int)sets[si].leaf_balls.size();
+  int total_leaf_balls = leaf_offsets[num_sets];
+
+  // Find the flat index of a Ball pointer
+  auto flatIndex = [&](const Set::Ball *ball) -> int {
+    for (int si = 0; si < num_sets; si++)
+      for (int bi = 0; bi < (int)sets[si].balls.size(); bi++)
+        if (&sets[si].balls[bi] == ball) return offsets[si] + bi;
+    return -1;
+  };
+
+  out << std::fixed << std::setprecision(7);
+
+  // ── Ball struct ──────────────────────────────────────────────────────────
+  out << "struct Ball {\n"
+      << "    vec3  dir;\n"
+      << "    float dist;\n"
+      << "    float curvature;\n"
+      << "    int   dest_ball;  // flat index into BALLS[]; -1 = none\n"
+      << "};\n\n";
+
+  // ── Set offset table ─────────────────────────────────────────────────────
+  // SET_OFFSET[i] = first index in BALLS[] for set i
+  // Ball b = BALLS[SET_OFFSET[dest_set] + local_ball_index]
+  out << "const int NUM_SETS = " << num_sets << ";\n";
+  out << "const int SET_OFFSET[" << num_sets << "] = int[" << num_sets << "](";
+  for (int si = 0; si < num_sets; si++)
+    out << offsets[si] << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
+  out << "const int SET_SIZE[" << num_sets << "] = int[" << num_sets << "](";
+  for (int si = 0; si < num_sets; si++)
+    out << (int)sets[si].balls.size() << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
+  out << "const int LEAF_OFFSET[" << num_sets << "] = int[" << num_sets << "](";
+  for (int si = 0; si < num_sets; si++)
+    out << leaf_offsets[si] << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
+  out << "const int LEAF_SIZE[" << num_sets << "] = int[" << num_sets << "](";
+  for (int si = 0; si < num_sets; si++)
+    out << (int)sets[si].leaf_balls.size() << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
+  out << "const bool LEAF_UNION[" << num_sets << "] = bool[" << num_sets << "](";
+  for (int si = 0; si < num_sets; si++)
+    out << (sets[si].leaf_union ? "true" : "false") << (si < num_sets - 1 ? ", " : "");
+  out << ");\n\n";
+
+  // ── Flat ball array ───────────────────────────────────────────────────────
+  out << "const int NUM_BALLS = " << total_balls << ";\n";
+  out << "const Ball BALLS[" << total_balls << "] = Ball[" << total_balls << "](\n";
+  for (int si = 0; si < num_sets; si++)
+  {
+    const Set &s = sets[si];
+    int n = (int)s.balls.size();
+    out << "    // set " << si << ": " << s.name << "\n";
+    for (int bi = 0; bi < n; bi++)
+    {
+      const Set::Ball &b = s.balls[bi];
+      int dest = flatIndex(b.dest_ball);
+      bool last = (si == num_sets - 1 && bi == n - 1);
+      out << "    Ball(vec3("
+          << b.dir.x() << ", " << b.dir.y() << ", " << b.dir.z() << "), "
+          << b.dist << ", "
+          << b.curvature << ", "
+          << dest << ")"
+          << (last ? "" : ",") << "\n";
+    }
+  }
+  out << ");\n\n";
+
+  // ── Flat leaf_ball array ──────────────────────────────────────────────────
+  if (total_leaf_balls > 0)
+  {
+    out << "const int NUM_LEAF_BALLS = " << total_leaf_balls << ";\n";
+    out << "const Ball LEAF_BALLS[" << total_leaf_balls << "] = Ball[" << total_leaf_balls << "](\n";
+    int flat = 0;
+    for (int si = 0; si < num_sets; si++)
+    {
+      const Set &s = sets[si];
+      int n = (int)s.leaf_balls.size();
+      if (n == 0) continue;
+      out << "    // set " << si << ": " << s.name << "\n";
+      for (int bi = 0; bi < n; bi++, flat++)
+      {
+        const Set::Ball &b = s.leaf_balls[bi];
+        out << "    Ball(vec3("
+            << b.dir.x() << ", " << b.dir.y() << ", " << b.dir.z() << "), "
+            << b.dist << ", "
+            << b.curvature << ", "
+            << "-1)"  // leaf balls don't recurse
+            << (flat < total_leaf_balls - 1 ? "," : "") << "\n";
+      }
+    }
+    out << ");\n\n";
+  }
+
+  // ── Per-set connectivity ──────────────────────────────────────────────────
+  for (int si = 0; si < num_sets; si++)
+  {
+    const Set &s = sets[si];
+    int n = (int)s.balls.size();
+    int nadj = n * (n + 1) / 2;
+    std::string id = ident(s.name);
+
+    out << "// ── Set " << si << ": " << s.name << " ────────────────────────────────────\n";
+    out << "const int CONN_" << id << "[" << nadj << "] = int[" << nadj << "](";
+    for (int k = 0; k < nadj; k++)
+      out << s.conn.data[k] << (k < nadj - 1 ? ", " : "");
+    out << ");\n";
+
+    out << "int conn_" << id << "(int i, int j) {\n"
+        << "    return i >= j ? CONN_" << id << "[i*(i+1)/2 + j]\n"
+        << "                  : CONN_" << id << "[j*(j+1)/2 + i];\n"
+        << "}\n\n";
+  }
+
+  std::cout << "Wrote " << filename << "\n";
 }
 
 void Landscape::addSetToTypes(Set &set)
