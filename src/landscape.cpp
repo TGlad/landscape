@@ -579,17 +579,27 @@ void Landscape::outputCode(const std::string &filename) const
 
 void Landscape::addSetToTypes(Set &set)
 {
-  for (int i = 0; i<(int)set.balls.size(); i++)
-  { 
-    Type new_type(set.conn, i);
+  int set_size = (int)set.balls.size();
+  for (int i = 0; i < set_size; i++)
+  {
+    std::vector<int> out_is;
+    Type new_type(set.conn, i, out_is);
+
+    // Populate per-ball permutation maps.
+    Set::Ball &ball = set.balls[i];
+    ball.type_to_set = out_is;
+    ball.set_to_type.assign(set_size, -1);
+    for (int ti = 0; ti < (int)out_is.size(); ti++)
+      ball.set_to_type[out_is[ti]] = ti;
+
     bool found = false;
-    for (int j = 0; j<types.size(); j++)
+    for (int j = 0; j < (int)types.size(); j++)
     {
-      if (types[j].conn == new_type.conn)
+      if (types[j].conn.data == new_type.conn.data)
       {
         // new_type already exists, so add it in.
-        types[j].balls.push_back(&set.balls[i]);
-        set.balls[i].type = &types[j];
+        types[j].balls.push_back(&ball);
+        ball.type = &types[j];
         found = true;
         break;
       }
@@ -597,10 +607,140 @@ void Landscape::addSetToTypes(Set &set)
     if (!found)
     {
       types.push_back(new_type);
-      types.back().balls.push_back(&set.balls[i]);
-      set.balls[i].type = &types.back();
+      types.back().balls.push_back(&ball);
+      ball.type = &types.back();
     }
   }
+}
+
+// Returns false if the Möbius transform could not be computed.
+// Tries a pure similarity first; if radii scale inconsistently, falls back to
+// an inversion in the source ball followed by a similarity.
+static bool computeMobiusTransform(Landscape::Set::Ball &src, Landscape::Set::Ball &dst)
+{
+  using Vec3 = Eigen::Vector3d;
+  using Mat3 = Eigen::Matrix3d;
+  using Sph  = std::pair<Vec3, double>; // (centre, radius)
+
+  // Build canonical sphere list: index 0 = the ball itself, 1..m-1 = canonical neighbours.
+  auto buildSpheres = [](const Landscape::Set::Ball &b) -> std::vector<Sph>
+  {
+    std::vector<Sph> sph;
+    const Landscape::Set *ps = b.parent_set;
+    for (int si : b.type_to_set)
+    {
+      const Landscape::Set::Ball &nb = ps->balls[si];
+      if (nb.curvature == 0.0) return {}; // planes not yet supported
+      double r = 1.0 / nb.curvature;
+      sph.push_back({ nb.dir * (nb.dist + r), r });
+    }
+    return sph;
+  };
+
+  auto src_sph = buildSpheres(src);
+  auto dst_sph = buildSpheres(dst);
+  if (src_sph.empty() || dst_sph.empty()) return false;
+  int m = (int)src_sph.size();
+
+  const std::string tag = "[mobius " + src.parent_set->name
+                        + " ball " + std::to_string(src.type_to_set[0]) + "]";
+
+  // Kabsch SVD: find best proper rotation R s.t. R*(from_i - from_0) ≈ (to_i - to_0)/s.
+  auto kabsch = [&](const std::vector<Sph> &from, const std::vector<Sph> &to, double s) -> Mat3
+  {
+    if (m <= 1) return Mat3::Identity();
+    Mat3 H = Mat3::Zero();
+    for (int i = 1; i < m; i++)
+    {
+      Vec3 A = from[i].first - from[0].first;
+      Vec3 B = (to[i].first  - to[0].first) / s;
+      H += A * B.transpose();
+    }
+    Eigen::JacobiSVD<Mat3> svd(H, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Mat3 U = svd.matrixU(), V = svd.matrixV();
+    Mat3 D = Mat3::Identity();
+    D(2,2) = (V * U.transpose()).determinant() > 0 ? 1.0 : -1.0;
+    return V * D * U.transpose();
+  };
+
+  // RMS residual of mapped centres.
+  auto residual = [&](const std::vector<Sph> &from, const std::vector<Sph> &to,
+                      double s, const Mat3 &R, const Vec3 &t) -> double
+  {
+    double e2 = 0;
+    for (int i = 0; i < m; i++)
+      e2 += (s * R * from[i].first + t - to[i].first).squaredNorm();
+    return std::sqrt(e2 / m);
+  };
+
+  // ---- Try similarity (flip = false) ----
+  {
+    double s = 0;
+    for (int i = 0; i < m; i++) s += dst_sph[i].second / src_sph[i].second;
+    s /= m;
+    bool ok = true;
+    for (int i = 0; i < m; i++)
+      if (std::abs(dst_sph[i].second / src_sph[i].second - s) > 1e-4 * s) { ok = false; break; }
+    if (ok)
+    {
+      Mat3 R = kabsch(src_sph, dst_sph, s);
+      Vec3 t = dst_sph[0].first - s * R * src_sph[0].first;
+      double err = residual(src_sph, dst_sph, s, R, t);
+      std::cout << tag << " similarity  s=" << s << "  residual=" << err << "\n";
+      if (err < 1e-4)
+      {
+        src.mobius = { Vec3::Zero(), t, R, s, false };
+        return true;
+      }
+    }
+  }
+
+  // ---- Try inversion in src ball, then similarity (flip = true) ----
+  {
+    const Vec3 &C0 = src_sph[0].first;
+    double rho2    = src_sph[0].second * src_sph[0].second;
+
+    std::vector<Sph> inv(m);
+    bool ok = true;
+    for (int i = 0; i < m; i++)
+    {
+      Vec3   dv = src_sph[i].first - C0;
+      double ri = src_sph[i].second;
+      double D  = dv.squaredNorm() - ri * ri;
+      if (std::abs(D) < 1e-10) { ok = false; break; }
+      double k = rho2 / D;
+      inv[i] = { C0 + k * dv, std::abs(k) * ri };
+    }
+
+    if (ok)
+    {
+      double s = 0;
+      for (int i = 0; i < m; i++) s += dst_sph[i].second / inv[i].second;
+      s /= m;
+      bool scale_ok = true;
+      for (int i = 0; i < m; i++)
+        if (std::abs(dst_sph[i].second / inv[i].second - s) > 1e-4 * s) { scale_ok = false; break; }
+
+      if (scale_ok)
+      {
+        Mat3 R = kabsch(inv, dst_sph, s);
+        Vec3 t = dst_sph[0].first - s * R * inv[0].first;
+        double err = residual(inv, dst_sph, s, R, t);
+        std::cout << tag << " inversion+similarity  rho2=" << rho2
+                  << "  s=" << s << "  residual=" << err << "\n";
+        if (err < 1e-4)
+        {
+          // M(p) = R * (s*rho2 * (p-C0)/|p-C0|²) + t
+          // struct: rotation*(scale*(p-center)/|p-center|²) + translation
+          src.mobius = { C0, t, R, s * rho2, true };
+          return true;
+        }
+      }
+    }
+  }
+
+  std::cerr << tag << " FAIL: could not compute Möbius transform\n";
+  return false;
 }
 
 void Landscape::matchUpDestinationBalls()
@@ -612,11 +752,10 @@ void Landscape::matchUpDestinationBalls()
       if (ball.dest_set == "") // standard recursion
       {
         ball.dest_ball = &ball;
+        computeMobiusTransform(ball, ball);
         continue;
       }
       const Type *type = ball.type;
-      Set::Ball *dest_ball = nullptr;
-      bool found_ball = false;
       for (auto &type_ball: type->balls) // for every ball of this type
       {
         if (type_ball->parent_set->name == ball.dest_set) // check it matches the set name
@@ -637,6 +776,10 @@ void Landscape::matchUpDestinationBalls()
           }
         }
       }
+      if (ball.dest_ball != nullptr)
+        computeMobiusTransform(ball, *ball.dest_ball);
+      else
+        std::cerr << "[matchUp] no dest_ball found for ball in set '" << set.name << "'\n";
     }
   }
 }

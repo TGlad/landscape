@@ -24,7 +24,7 @@ struct Adj // lower triangular undirected adjacency matrix
   {
     return i >= j ? data[(i * (i + 1) / 2) + j] : data[(j * (j + 1) / 2) + i]; 
   }
-  bool operator==(Adj &other)
+/*  bool operator==(Adj &other)
   {
     if (hash == "")
     {
@@ -35,9 +35,9 @@ struct Adj // lower triangular undirected adjacency matrix
       other.hash = other.get_wl_hash();
     }
     return hash == other.hash;
-  }
+  }*/
   std::vector<int> data;
-  std::string hash;
+//  std::string hash;
 
   std::string get_wl_hash(int iterations = 3) 
   {
