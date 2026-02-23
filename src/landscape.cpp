@@ -462,11 +462,20 @@ void Landscape::outputCode(const std::string &filename) const
     leaf_offsets[si + 1] = leaf_offsets[si] + (int)sets[si].leaf_balls.size();
   int total_leaf_balls = leaf_offsets[num_sets];
 
-  // Find the flat index of a Ball pointer
+  // Find the flat index of a Ball pointer into BALLS[]
   auto flatIndex = [&](const Set::Ball *ball) -> int {
     for (int si = 0; si < num_sets; si++)
       for (int bi = 0; bi < (int)sets[si].balls.size(); bi++)
         if (&sets[si].balls[bi] == ball) return offsets[si] + bi;
+    return -1;
+  };
+
+  // Find which set index a Ball pointer belongs to (-1 if null)
+  auto setIndex = [&](const Set::Ball *ball) -> int {
+    if (!ball) return -1;
+    for (int si = 0; si < num_sets; si++)
+      for (int bi = 0; bi < (int)sets[si].balls.size(); bi++)
+        if (&sets[si].balls[bi] == ball) return si;
     return -1;
   };
 
@@ -477,6 +486,7 @@ void Landscape::outputCode(const std::string &filename) const
       << "    vec3  dir;\n"
       << "    float dist;\n"
       << "    float curvature;\n"
+      << "    int   dest_set;   // flat index into SETS[];  -1 = reflexive\n"
       << "    int   dest_ball;  // flat index into BALLS[]; -1 = none\n"
       << "};\n\n";
 
@@ -516,13 +526,15 @@ void Landscape::outputCode(const std::string &filename) const
     for (int bi = 0; bi < n; bi++)
     {
       const Set::Ball &b = s.balls[bi];
-      int dest = flatIndex(b.dest_ball);
+      int dest_s = setIndex(b.dest_ball);
+      int dest_b = flatIndex(b.dest_ball);
       bool last = (si == num_sets - 1 && bi == n - 1);
       out << "    Ball(vec3("
           << b.dir.x() << ", " << b.dir.y() << ", " << b.dir.z() << "), "
           << b.dist << ", "
           << b.curvature << ", "
-          << dest << ")"
+          << dest_s << ", "
+          << dest_b << ")"
           << (last ? "" : ",") << "\n";
     }
   }
@@ -547,31 +559,11 @@ void Landscape::outputCode(const std::string &filename) const
             << b.dir.x() << ", " << b.dir.y() << ", " << b.dir.z() << "), "
             << b.dist << ", "
             << b.curvature << ", "
-            << "-1)"  // leaf balls don't recurse
+            << "-1, -1)"  // leaf balls don't recurse
             << (flat < total_leaf_balls - 1 ? "," : "") << "\n";
       }
     }
     out << ");\n\n";
-  }
-
-  // ── Per-set connectivity ──────────────────────────────────────────────────
-  for (int si = 0; si < num_sets; si++)
-  {
-    const Set &s = sets[si];
-    int n = (int)s.balls.size();
-    int nadj = n * (n + 1) / 2;
-    std::string id = ident(s.name);
-
-    out << "// ── Set " << si << ": " << s.name << " ────────────────────────────────────\n";
-    out << "const int CONN_" << id << "[" << nadj << "] = int[" << nadj << "](";
-    for (int k = 0; k < nadj; k++)
-      out << s.conn.data[k] << (k < nadj - 1 ? ", " : "");
-    out << ");\n";
-
-    out << "int conn_" << id << "(int i, int j) {\n"
-        << "    return i >= j ? CONN_" << id << "[i*(i+1)/2 + j]\n"
-        << "                  : CONN_" << id << "[j*(j+1)/2 + i];\n"
-        << "}\n\n";
   }
 
   // ── Möbius transforms ─────────────────────────────────────────────────────
@@ -660,10 +652,14 @@ void Landscape::outputCode(const std::string &filename) const
     out << "// Apply the Möbius transform for Möbius index mi to point v.\n"
         << "//   Similarity (MOBIUS_SIM=true):  v' = T + s * R * v\n"
         << "//   Inversion  (MOBIUS_SIM=false): v' = T + (s/dot(w,w)) * R * w,  w = v - C\n"
-        << "vec3 applyMobius(int mi, vec3 v) {\n"
+        << "vec3 applyMobius(int mi, vec3 v, inout float scale) {\n"
         << "    if (MOBIUS_SIM[mi])\n"
+        << "    {\n"
+        << "        scale *= MOBIUS_S[mi];\n"
         << "        return MOBIUS_T[mi] + MOBIUS_S[mi] * (MOBIUS_R[mi] * v);\n"
+        << "    }\n"
         << "    vec3 w = v - MOBIUS_C[mi];\n"
+        << "    scale *= MOBIUS_S[mi] / dot(w, w);\n"
         << "    return MOBIUS_T[mi] + (MOBIUS_S[mi] / dot(w, w)) * (MOBIUS_R[mi] * w);\n"
         << "}\n\n";
   }
