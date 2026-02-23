@@ -71,12 +71,24 @@ struct Landscape
 
       struct Mobius
       {
-        // O(4,1) conformal transformation, metric η = diag(1,1,1,1,-1).
-        // Sphere (c,r): σ̂ = (c, (1-|c|²+r²)/2, (1+|c|²-r²)/2) / r, σ̂·σ̂ = 1.
-        // Point  p:    P  = (p, (1-|p|²)/2, (1+|p|²)/2),           P·P  = 0.
-        // Apply to point:  Y = M*P;  p' = Y.xyz / (Y[3]+Y[4]).
-        // Apply to sphere: S = M*σ̂; r' = 1/(S[3]+S[4]); c' = S.xyz*r'.
+        // O(4,1) matrix kept for solver use (Gauss-Seidel, etc.)
+        // Metric η = diag(1,1,1,1,−1).
+        // Point p encoded as (p, (1−|p|²)/2, (1+|p|²)/2); decode Y → Y.xyz/(Y[3]+Y[4]).
         Eigen::Matrix<double,5,5> M = Eigen::Matrix<double,5,5>::Identity();
+
+        // GLSL-friendly decomposition, populated from M by decomposeMobius().
+        //
+        //   Similarity   (is_similarity = true,  C unused):
+        //     f(v) = T + s * R * v
+        //
+        //   Inversion    (is_similarity = false):
+        //     f(v) = T + s * R * (v − C) / |v − C|²
+        //     C = pre-image of ∞,  T = image of ∞
+        Eigen::Vector3d C = Eigen::Vector3d::Zero();
+        Eigen::Vector3d T = Eigen::Vector3d::Zero();
+        double          s = 1.0;
+        Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
+        bool is_similarity = true;
 
         Eigen::Vector3d transformPoint(const Eigen::Vector3d &p) const
         {
@@ -89,16 +101,29 @@ struct Landscape
                                        : Eigen::Vector3d::Zero();
         }
 
+        // Apply the T,C,s,R decomposition (GLSL path) to a point.
+        //   Similarity (is_similarity=true):  f(v) = T + s*R*v
+        //   Inversion  (is_similarity=false): f(v) = T + s*R*(v-C)/|v-C|²
+        Eigen::Vector3d transformDecomposed(const Eigen::Vector3d &p) const
+        {
+          if (is_similarity)
+            return T + s * (R * p);
+          Eigen::Vector3d w = p - C;
+          double d2 = w.squaredNorm();
+          if (d2 < 1e-30) return Eigen::Vector3d(1e15, 0.0, 0.0);
+          return T + (s / d2) * (R * w);
+        }
+
         // Returns (centre, radius) of the transformed sphere.
         std::pair<Eigen::Vector3d,double> transformSphere(
             const Eigen::Vector3d &c, double r) const
         {
           double c2 = c.squaredNorm();
-          Eigen::Matrix<double,5,1> s;
-          s << c.x(), c.y(), c.z(),
-               (1.0-c2+r*r)/2.0, (1.0+c2-r*r)/2.0;
-          auto Y = M * (s / r);          // apply to unit-normalised σ̂
-          double inv_r = Y(3) + Y(4);   // = 1/r'
+          Eigen::Matrix<double,5,1> sv;
+          sv << c.x(), c.y(), c.z(),
+                (1.0-c2+r*r)/2.0, (1.0+c2-r*r)/2.0;
+          auto Y = M * (sv / r);
+          double inv_r = Y(3) + Y(4);
           if (std::abs(inv_r) < 1e-15) return {{0,0,0}, 0};
           return { Y.head<3>() / inv_r, 1.0/inv_r };
         }
@@ -114,6 +139,14 @@ struct Landscape
     void addLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
   };
   std::deque<Set> sets;
+
+  // Joint Gauss-Seidel over all sets simultaneously.
+  // Enforces each set's own pairwise connectivity constraints AND, for every
+  // ball that has a dest_set link, the inversive-distance matching constraints
+  // that ensure a Möbius transform exists between the two neighbourhoods.
+  // Call this once after all sets (and their dest_set/dest_ball_id fields)
+  // are configured, instead of calling Set::applyConnectivity() individually.
+  void applyConnectivity(int iterations = 4000);
 
   struct Type
   {

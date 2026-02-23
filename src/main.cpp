@@ -39,11 +39,6 @@ int main()
     tree_tree.balls[i].dist = 0.3;
     tree_tree.balls[i].curvature = 3.0;
   }
-  tree_tree.applyConnectivity();
-  tree_tree.verifyConnectivity();
-  tree_tree.addLeafBall(0,1,2,3);
-  tree_tree.addLeafBall(2,3,4,5);
-  tree_tree.leaf_union = true;
   land.addSetToTypes(tree_tree);
 
 
@@ -75,8 +70,6 @@ int main()
   }
   shell_tree.balls[4].dist = 0.3;
   shell_tree.balls[4].curvature = 8.0;
-  shell_tree.applyConnectivity();
-  shell_tree.verifyConnectivity();
   land.addSetToTypes(shell_tree);
 
   land.sets.push_back(Landscape::Set("shell-shell", 6));
@@ -107,14 +100,9 @@ int main()
   shell_shell.balls[5].dist = 0.1;
   shell_shell.balls[0].curvature = 4.0;
   shell_shell.balls[5].curvature = 4.0;
-  shell_shell.applyConnectivity();
-  shell_shell.verifyConnectivity();
-  shell_shell.addLeafBall(0,1,2,4);
-  shell_shell.addLeafBall(2,3,4,5);
-  shell_shell.leaf_union = false;
   shell_shell.balls[0].dest_set = "tree-tree";
   shell_shell.balls[0].dest_ball_id = 0;
-  land.addSetToTypes(shell_shell);  
+  land.addSetToTypes(shell_shell);
 
 
   land.sets.push_back(Landscape::Set("shell-sponge", 6));
@@ -124,12 +112,30 @@ int main()
   shell_sponge.conn(0,5) = 4; // make it a sponge
   shell_sponge.balls[0].dist = 0.01;
   shell_sponge.balls[5].dist = 0.01;
-  shell_sponge.applyConnectivity();
+  shell_sponge.balls[0].dest_set = "";
+  land.addSetToTypes(shell_sponge);
+
+  // ── Global joint solve ───────────────────────────────────────────────────
+  // Solves all sets simultaneously: per-set connectivity constraints AND
+  // the inversive-distance matching constraints imposed by dest_set links.
+  land.applyConnectivity();
+
+  tree_tree.verifyConnectivity();
+  shell_tree.verifyConnectivity();
+  shell_shell.verifyConnectivity();
   shell_sponge.verifyConnectivity();
+
+  tree_tree.addLeafBall(0,1,2,3);
+  tree_tree.addLeafBall(2,3,4,5);
+  tree_tree.leaf_union = true;
+
+  shell_shell.addLeafBall(0,1,2,4);
+  shell_shell.addLeafBall(2,3,4,5);
+  shell_shell.leaf_union = false;
+
   shell_sponge.addLeafBall(0,1,2,4);
   shell_sponge.addLeafBall(2,3,4,5);
   shell_sponge.leaf_union = false;
-  land.addSetToTypes(shell_sponge);  
 
   land.matchUpDestinationBalls();
 
