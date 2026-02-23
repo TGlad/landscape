@@ -737,6 +737,33 @@ static Vec5 conformal_sphere(const Eigen::Vector3d &c, double r)
 // Every element of O(4,1) acts on ℝ³∪{∞} as either:
 //   Similarity  (∞ → ∞):   f(v) = T + s·R·v                    [is_similarity=true]
 //   Inversion   (∞ → T):   f(v) = T + s·R·(v−C)/|v−C|²        [is_similarity=false]
+// Project a Mat5 onto O(4,1) using a damped Schulz iteration.
+//
+// The standard (undamped) Schulz step  M ← M·(3I − η MᵀηM)/2  converges
+// quadratically when ‖MᵀηM − η‖ < 1 but diverges for larger errors.
+//
+// The damped variant  M ← M·(I + α(I − η MᵀηM))  is gradient descent on
+// the constraint E = MᵀηM − η and converges for ‖E‖ < 1/α.  Using an
+// adaptive step α = min(0.5, 0.4/‖E‖) keeps the effective step small enough
+// for any starting error while still converging quickly once close.
+static Mat5 eta_orthonormalize(const Mat5 &M_in)
+{
+  Mat5 eta = Mat5::Identity();
+  eta(4,4) = -1.0;
+  Mat5 M = M_in;
+  for (int iter = 0; iter < 200; iter++)
+  {
+    Mat5 E = M.transpose() * eta * M - eta;
+    double err = E.norm();
+    if (err < 1e-12) break;
+    double alpha = std::min(0.5, 0.4 / err); // keeps ‖α·E‖ ≤ 0.4 < 1
+    // Correct O(4,1) Schulz step: M ← M·(I − α·η·E).
+    // Linearised error map: E' ≈ (1 − 2α)E, so α ∈ (0, ½] is unconditionally convergent.
+    M = M * (Mat5::Identity() - alpha * eta * E);
+  }
+  return M;
+}
+
 //
 // Extraction:
 //   n_∞ = (0,0,0,−1,1)ᵀ  is the null vector for the point at infinity.
@@ -746,6 +773,9 @@ static Vec5 conformal_sphere(const Eigen::Vector3d &c, double r)
 static void decomposeMobius(const Mat5 &M,
                              Landscape::Set::Ball::Mobius &out)
 {
+  // Caller must supply an M that is already in (or close to) O(4,1).
+  // See eta_orthonormalize().
+
   Mat5 eta = Mat5::Identity();
   eta(4,4) = -1.0;
 
@@ -845,7 +875,26 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
       gram_err = std::max(gram_err, std::abs(
           mink_dot(A.col(i), A.col(j)) - mink_dot(C.col(i), C.col(j))));
   if (gram_err > 1e-3)
+  {
     std::cout << tag << " [Gram=" << gram_err << "] ";
+    if (gram_err > 0.1)
+    {
+      // Print the full pair-by-pair inversive distances (= -mink_dot) for diagnosis.
+      // δ(i,j) = -mink_dot(σ̂_i, σ̂_j); equals cos(intersection_angle) for tangent spheres.
+      std::cout << "\n" << tag << " src/dst inversive distances (set-ball indices):\n";
+      for (int i = 0; i < m; i++)
+        for (int j = 0; j < i; j++)
+        {
+          double ds = -mink_dot(A.col(i), A.col(j));
+          double dd = -mink_dot(C.col(i), C.col(j));
+          int si = src.type_to_set[i], sj = src.type_to_set[j];
+          int di = dst.type_to_set[i], dj = dst.type_to_set[j];
+          std::cout << "    (" << si << "," << sj << ")→(" << di << "," << dj << "):"
+                    << "  src δ=" << ds << "  dst δ=" << dd
+                    << (std::abs(ds-dd) > 0.1 ? "  *** MISMATCH" : "") << "\n";
+        }
+    }
+  }
 
   // Rank determination and M computation via thin SVD of A.
   //
@@ -858,7 +907,13 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   // With SVD the rank-deficient case is correctly routed to the η-complement
   // branch, where M = C5 · A5⁻¹ gives the identity for any self-map.
   Eigen::JacobiSVD<Eigen::MatrixXd> svd_A(A, Eigen::ComputeFullU | Eigen::ComputeThinV);
-  svd_A.setThreshold(1e-8);
+  // Use a relative threshold of 1% of the largest singular value.
+  // This correctly classifies near-zero singular values that arise from
+  // exact linear dependencies in conformal space (e.g. the 4-fold equatorial
+  // ring satisfies σ̂₁+σ̂₃ = σ̂₂+σ̂₄, making a 5-ball neighbourhood rank-4
+  // despite having 5 columns). A tight absolute threshold (1e-8) lets these
+  // near-zero values through, causing 1/sv amplification of small Gram errors.
+  svd_A.setThreshold(0.01);
   int r = svd_A.rank();
 
   Mat5 M;
@@ -887,13 +942,31 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
       A5.col(k) = svd_A.matrixU().col(k);
       C5.col(k) = C * svd_A.matrixV().col(k) / svd_A.singularValues()(k);
     }
-    // η-complement = null space of Aᵀ η (right null space of the m×5 matrix).
+    // η-complement of span(A): null space of Aᵀη.
+    // For a cross-set map (src ≠ dst), C may have a *different* η-null
+    // direction than A if the Gram matrices don't match exactly.  Using A's
+    // null vector for both A5 and C5 only works for self-maps (C = A).
+    // For cross-maps we compute C's η-null independently and let M map
+    // A's null direction to C's null direction — that is, A5[:,k] = null_A
+    // and C5[:,k] = null_C.  This makes Gram_η(C5) = Gram_η(A5) exactly
+    // (assuming the 4D sub-Gram matrices match, which the solver enforces),
+    // and therefore M = C5·A5⁻¹ ∈ O(4,1) to machine precision.
     Eigen::JacobiSVD<Eigen::MatrixXd> svd_c(A.transpose() * eta,
                                              Eigen::ComputeFullV);
     int nc = 5 - r;
-    Eigen::MatrixXd null_vecs = svd_c.matrixV().rightCols(nc); // 5×nc
-    A5.rightCols(nc) = null_vecs;
-    C5.rightCols(nc) = null_vecs; // identity on the free complement
+    Eigen::MatrixXd null_A = svd_c.matrixV().rightCols(nc); // η-null of A
+    A5.rightCols(nc) = null_A;
+
+    // Compute the η-null space of C independently.
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd_cC(C.transpose() * eta,
+                                              Eigen::ComputeFullV);
+    Eigen::MatrixXd null_C = svd_cC.matrixV().rightCols(nc); // η-null of C
+    // Align sign so that M maps null_A to null_C (not to -null_C), keeping
+    // det(M) > 0 where possible.
+    for (int k = 0; k < nc; k++)
+      if (null_A.col(k).dot(null_C.col(k)) < 0) null_C.col(k) *= -1.0;
+    C5.rightCols(nc) = null_C;
+
     M = C5 * A5.inverse();
   }
 
@@ -931,14 +1004,20 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   const double tol_ok   = 1e-4;
   const double tol_fail = 5.0;//0.1;
 
-  // Always store M and decompose it for GLSL export regardless of quality.
-  // For NaN (degenerate source geometry) keep the identity that was set above.
+  // Project M onto O(4,1) via damped Schulz iteration so that the stored
+  // matrix is a valid Möbius transform even when the linear solve left it
+  // with residual O(4,1) error.  The projected matrix Mort is used for both
+  // transformPoint and the T,C,s,R decomposition so the two are consistent.
   if (M.allFinite()) {
-    src.mobius.M = M;
-    decomposeMobius(M, src.mobius);
+    const Mat5 Mort = eta_orthonormalize(M);
+    double oo1_after = (Mort.transpose() * eta * Mort - eta).norm();
+    std::cout << "  oo1_after=" << oo1_after;
 
-    // Verify: compare transformPoint (uses M) vs transformDecomposed (uses T,C,s,R)
-    // at a handful of test points and report the max discrepancy.
+    src.mobius.M = Mort;
+    decomposeMobius(Mort, src.mobius);
+
+    // Verify internal consistency: transformPoint (uses Mort) must match
+    // transformDecomposed (uses T,C,s,R extracted from Mort).
     static const Eigen::Vector3d test_pts[] = {
       {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {0.5,0.3,-0.7}, {2,-1,3}
     };
@@ -1216,7 +1295,8 @@ void Landscape::applyConnectivity(int iterations)
     // Gradient of δ(a,b) w.r.t. ra: −(ra² + |ΔC|² − rb²) / (2 ra² rb)
     //                              = −(δ(a,b)/ra + 1/rb)   [alternative form]
     //
-    // The step is shared equally between the two sets (factor ½ each side).
+    // Only the source side is updated; the dest geometry is fixed by its own
+    // intra constraints and updating it would cause oscillation.
     for (auto &gp : gram_pairs)
     {
       Set::Ball &src_ball = *gp.src;
@@ -1292,25 +1372,19 @@ void Landscape::applyConnectivity(int iterations)
       auto [gDirDB, gDistDB, gCurvDB] = grad_for(dB, rDB, gCdCDB, gCdrDB);
 
       double g2 = gDirSA.squaredNorm() + gDistSA*gDistSA + gCurvSA*gCurvSA
-                + gDirSB.squaredNorm() + gDistSB*gDistSB + gCurvSB*gCurvSB
-                + gDirDA.squaredNorm() + gDistDA*gDistDA + gCurvDA*gCurvDA
-                + gDirDB.squaredNorm() + gDistDB*gDistDB + gCurvDB*gCurvDB;
+                + gDirSB.squaredNorm() + gDistSB*gDistSB + gCurvSB*gCurvSB;
+                // Note: only the *source* side drives the step.  The dest set's
+                // geometry is fully determined by its own intra constraints; if we
+                // also pushed dest balls here they would fight back (oscillation).
       double step = -error / (g2 + damping);
 
-      // Source side: de/dS = +dδS/dS  → apply +step
+      // Source side only: pull shell-shell (src) toward the dest Gram matrix.
       sA.dir += step * gDirSA;  sA.dir.normalize();
       sA.dist += step*gDistSA;
       sA.curvature = std::max(1e-6, sA.curvature + step*gCurvSA);
       sB.dir += step * gDirSB;  sB.dir.normalize();
       sB.dist += step*gDistSB;
       sB.curvature = std::max(1e-6, sB.curvature + step*gCurvSB);
-      // Dest side: de/dT = -dδT/dT  → apply -step to the dest gradients
-      dA.dir -= step * gDirDA;  dA.dir.normalize();
-      dA.dist -= step*gDistDA;
-      dA.curvature = std::max(1e-6, dA.curvature - step*gCurvDA);
-      dB.dir -= step * gDirDB;  dB.dir.normalize();
-      dB.dist -= step*gDistDB;
-      dB.curvature = std::max(1e-6, dB.curvature - step*gCurvDB);
     }
   }
 }
