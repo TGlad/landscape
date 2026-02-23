@@ -15,10 +15,13 @@ int main()
   {
     tree_tree.conn(0, i) = 3;
     tree_tree.conn(5, i) = 3;
-    // around the meridian
+    // adjacent around the meridian contact at pi/3
     tree_tree.conn(last_i, i) = 3;
     last_i = i;
   }
+  // opposing equatorial balls are disjoint (explicitly separate)
+  tree_tree.conn(1, 3) = 0;
+  tree_tree.conn(2, 4) = 0;
   // now come up with some approximate locations
   tree_tree.balls[0].dir = Eigen::Vector3d(0,0,1);
   tree_tree.balls[1].dir = Eigen::Vector3d(1,0,0);
@@ -109,6 +112,8 @@ int main()
   shell_shell.addLeafBall(0,1,2,4);
   shell_shell.addLeafBall(2,3,4,5);
   shell_shell.leaf_union = false;
+  shell_shell.balls[0].dest_set = "tree-tree";
+  shell_shell.balls[0].dest_ball_id = 0;
   land.addSetToTypes(shell_shell);  
 
 

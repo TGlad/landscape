@@ -613,134 +613,173 @@ void Landscape::addSetToTypes(Set &set)
   }
 }
 
-// Returns false if the Möbius transform could not be computed.
-// Tries a pure similarity first; if radii scale inconsistently, falls back to
-// an inversion in the source ball followed by a similarity.
-static bool computeMobiusTransform(Landscape::Set::Ball &src, Landscape::Set::Ball &dst)
+// ── Conformal (O(4,1)) Möbius transform ──────────────────────────────────────
+//
+// Metric η = diag(1,1,1,1,-1) on ℝ^{4,1}.
+// Sphere (c,r) → σ̂ = (c, (1-|c|²+r²)/2, (1+|c|²-r²)/2) / r   (σ̂·σ̂ = 1).
+// Point  p    → P  = (p, (1-|p|²)/2, (1+|p|²)/2)              (P·P  = 0).
+// M ∈ O(4,1) satisfies M^T η M = η and maps source σ̂s to dest σ̂s.
+// With exactly 5 independent sphere pairs M = C5 * A5^{-1} is exact.
+
+using Vec5 = Eigen::Matrix<double,5,1>;
+using Mat5 = Eigen::Matrix<double,5,5>;
+
+static double mink_dot(const Vec5 &a, const Vec5 &b)
 {
-  using Vec3 = Eigen::Vector3d;
-  using Mat3 = Eigen::Matrix3d;
-  using Sph  = std::pair<Vec3, double>; // (centre, radius)
+  return a.head<4>().dot(b.head<4>()) - a(4)*b(4);
+}
 
-  // Build canonical sphere list: index 0 = the ball itself, 1..m-1 = canonical neighbours.
-  auto buildSpheres = [](const Landscape::Set::Ball &b) -> std::vector<Sph>
-  {
-    std::vector<Sph> sph;
-    const Landscape::Set *ps = b.parent_set;
-    for (int si : b.type_to_set)
-    {
-      const Landscape::Set::Ball &nb = ps->balls[si];
-      if (nb.curvature == 0.0) return {}; // planes not yet supported
-      double r = 1.0 / nb.curvature;
-      sph.push_back({ nb.dir * (nb.dist + r), r });
-    }
-    return sph;
-  };
+static Vec5 conformal_sphere(const Eigen::Vector3d &c, double r)
+{
+  double c2 = c.squaredNorm();
+  Vec5 v;
+  v << c.x(), c.y(), c.z(), (1.0-c2+r*r)/2.0, (1.0+c2-r*r)/2.0;
+  return v / r; // unit spacelike: v·η·v = 1
+}
 
-  auto src_sph = buildSpheres(src);
-  auto dst_sph = buildSpheres(dst);
-  if (src_sph.empty() || dst_sph.empty()) return false;
-  int m = (int)src_sph.size();
+static bool computeMobiusTransform(Landscape::Set::Ball &src,
+                                   Landscape::Set::Ball &dst)
+{
+  src.mobius.M = Mat5::Identity();
 
+  int m = (int)src.type_to_set.size(); // index 0 = ball itself
   const std::string tag = "[mobius " + src.parent_set->name
                         + " ball " + std::to_string(src.type_to_set[0]) + "]";
 
-  // Kabsch SVD: find best proper rotation R s.t. R*(from_i - from_0) ≈ (to_i - to_0)/s.
-  auto kabsch = [&](const std::vector<Sph> &from, const std::vector<Sph> &to, double s) -> Mat3
+  if (m < 2)
   {
-    if (m <= 1) return Mat3::Identity();
-    Mat3 H = Mat3::Zero();
-    for (int i = 1; i < m; i++)
+    std::cout << tag << " identity (isolated)\n";
+    return true;
+  }
+
+  Landscape::Set *src_set = src.parent_set;
+  Landscape::Set *dst_set = dst.parent_set;
+
+  Mat5 eta = Mat5::Identity();
+  eta(4,4) = -1.0;
+
+  // Build 5×m matrices A (source) and C (dest), columns = unit σ̂.
+  Eigen::MatrixXd A(5, m), C(5, m);
+  for (int i = 0; i < m; i++)
+  {
+    const auto &sb = src_set->balls[src.type_to_set[i]];
+    const auto &db = dst_set->balls[dst.type_to_set[i]];
+    if (sb.curvature == 0.0 || db.curvature == 0.0)
     {
-      Vec3 A = from[i].first - from[0].first;
-      Vec3 B = (to[i].first  - to[0].first) / s;
-      H += A * B.transpose();
+      std::cerr << tag << " SKIP: plane not supported\n";
+      return false;
     }
-    Eigen::JacobiSVD<Mat3> svd(H, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    Mat3 U = svd.matrixU(), V = svd.matrixV();
-    Mat3 D = Mat3::Identity();
-    D(2,2) = (V * U.transpose()).determinant() > 0 ? 1.0 : -1.0;
-    return V * D * U.transpose();
-  };
+    double rs = 1.0/sb.curvature, rd = 1.0/db.curvature;
+    A.col(i) = conformal_sphere(sb.dir*(sb.dist+rs), rs);
+    C.col(i) = conformal_sphere(db.dir*(db.dist+rd), rd);
+  }
 
-  // RMS residual of mapped centres.
-  auto residual = [&](const std::vector<Sph> &from, const std::vector<Sph> &to,
-                      double s, const Mat3 &R, const Vec3 &t) -> double
-  {
-    double e2 = 0;
-    for (int i = 0; i < m; i++)
-      e2 += (s * R * from[i].first + t - to[i].first).squaredNorm();
-    return std::sqrt(e2 / m);
-  };
+  // Gram matrix compatibility check.  Print a warning for mismatches but
+  // continue — a small mismatch (solver imprecision) gives an approximate M.
+  double gram_err = 0;
+  for (int i = 0; i < m; i++)
+    for (int j = 0; j < m; j++)
+      gram_err = std::max(gram_err, std::abs(
+          mink_dot(A.col(i), A.col(j)) - mink_dot(C.col(i), C.col(j))));
+  if (gram_err > 1e-3)
+    std::cout << tag << " [Gram=" << gram_err << "] ";
 
-  // ---- Try similarity (flip = false) ----
+  // Rank determination and M computation via thin SVD of A.
+  //
+  // SVD is used instead of QR because column-pivoting QR can over-estimate the
+  // rank for geometrically symmetric configurations.  Example: a 4-fold
+  // equatorial ring of spheres satisfies σ̂₁ + σ̂₃ = σ̂₂ + σ̂₄ exactly
+  // (identical last two conformal coordinates), making A truly rank 4 even
+  // though m = 5.  QR misses this; (A·Aᵀ)⁻¹ then blows up to NaN.
+  //
+  // With SVD the rank-deficient case is correctly routed to the η-complement
+  // branch, where M = C5 · A5⁻¹ gives the identity for any self-map.
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd_A(A, Eigen::ComputeFullU | Eigen::ComputeThinV);
+  svd_A.setThreshold(1e-8);
+  int r = svd_A.rank();
+
+  Mat5 M;
+  if (r >= 5)
   {
-    double s = 0;
-    for (int i = 0; i < m; i++) s += dst_sph[i].second / src_sph[i].second;
-    s /= m;
-    bool ok = true;
-    for (int i = 0; i < m; i++)
-      if (std::abs(dst_sph[i].second / src_sph[i].second - s) > 1e-4 * s) { ok = false; break; }
-    if (ok)
+    // Full rank (m ≥ 5): M = C · A⁺  where  A⁺ = V · S⁻¹ · Uᵀ.
+    // For m = 5 this equals C · A⁻¹.  For m > 5 it is the minimum-residual
+    // least-squares solution over all m columns.
+    Eigen::VectorXd sinv = svd_A.singularValues().array().inverse(); // all non-zero
+    M = (C * svd_A.matrixV() * sinv.asDiagonal() * svd_A.matrixU().transpose()).eval();
+  }
+  else
+  {
+    // Underdetermined (r < 5), including cases where m ≥ 5 but columns of A
+    // are linearly dependent in conformal space.
+    //
+    // Constrained directions (k = 0..r−1): source basis = SVD left-singular
+    // vectors uₖ; image = C · vₖ / sₖ.
+    // Free directions (k = r..4): identity on the η-orthogonal complement
+    // of span(A), which guarantees M ∈ O(4,1) on the unconstrained subspace.
+    //
+    // For any self-map (C = A): C·vₖ/sₖ = A·vₖ/sₖ = uₖ, so C5 = A5 → M = I.
+    Eigen::MatrixXd A5(5,5), C5(5,5);
+    for (int k = 0; k < r; k++)
     {
-      Mat3 R = kabsch(src_sph, dst_sph, s);
-      Vec3 t = dst_sph[0].first - s * R * src_sph[0].first;
-      double err = residual(src_sph, dst_sph, s, R, t);
-      std::cout << tag << " similarity  s=" << s << "  residual=" << err << "\n";
-      if (err < 1e-4)
-      {
-        src.mobius = { Vec3::Zero(), t, R, s, false };
-        return true;
-      }
+      A5.col(k) = svd_A.matrixU().col(k);
+      C5.col(k) = C * svd_A.matrixV().col(k) / svd_A.singularValues()(k);
+    }
+    // η-complement = null space of Aᵀ η (right null space of the m×5 matrix).
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd_c(A.transpose() * eta,
+                                             Eigen::ComputeFullV);
+    int nc = 5 - r;
+    Eigen::MatrixXd null_vecs = svd_c.matrixV().rightCols(nc); // 5×nc
+    A5.rightCols(nc) = null_vecs;
+    C5.rightCols(nc) = null_vecs; // identity on the free complement
+    M = C5 * A5.inverse();
+  }
+
+  // Lorentzian polarization: iterate M ← M·(3I − η MᵀηM)/2 to re-project onto
+  // O(4,1) when a small Gram mismatch or numerical error has pushed M off.
+  //
+  // Fixed-point check: M ∈ O(4,1) ⟹ MᵀηM = η ⟹ η·Mᵀ·η·M = η² = I
+  //   ⟹  M·(3I − I)/2 = M·I = M  ✓
+  //
+  // This is the O(4,1) analogue of the Schulz iteration for O(n): it removes
+  // the η-symmetric part of the perturbation E (when M = Q(I+E), Q ∈ O(4,1))
+  // with quadratic convergence, leaving only the η-skew-symmetric part.
+  // (The wrong formula (3I − MᵀηM)/2 has η as a fixed point, not I.)
+  //
+  // Only attempt this if M is already close to O(4,1).
+  double pre_err = (M.transpose() * eta * M - eta).norm();
+  if (pre_err < 1.0)
+  {
+    for (int iter = 0; iter < 20; iter++)
+    {
+      Mat5 dev = M.transpose() * eta * M - eta;
+      if (dev.norm() < 1e-10) break;  // generous threshold: a few ε_machine above zero
+      M = M * (3.0 * Mat5::Identity() - eta * M.transpose() * eta * M) / 2.0;
     }
   }
 
-  // ---- Try inversion in src ball, then similarity (flip = true) ----
+  // Diagnostics: O(4,1) condition and full residual over all m columns.
+  double oo1_err  = (M.transpose() * eta * M - eta).norm();
+  double residual = (M * A - C).norm() / std::sqrt((double)m);
+
+  std::cout << tag << "  r=" << r
+            << "  O(4,1)_err=" << oo1_err
+            << "  residual=" << residual;
+
+  const double tol_ok   = 1e-4;
+  const double tol_fail = 0.1;
+
+  // Treat NaN as FAIL: ieee nan comparisons always return false, so guard explicitly.
+  bool bad = !std::isfinite(oo1_err) || !std::isfinite(residual)
+             || oo1_err > tol_fail || residual > tol_fail;
+  if (bad)
   {
-    const Vec3 &C0 = src_sph[0].first;
-    double rho2    = src_sph[0].second * src_sph[0].second;
-
-    std::vector<Sph> inv(m);
-    bool ok = true;
-    for (int i = 0; i < m; i++)
-    {
-      Vec3   dv = src_sph[i].first - C0;
-      double ri = src_sph[i].second;
-      double D  = dv.squaredNorm() - ri * ri;
-      if (std::abs(D) < 1e-10) { ok = false; break; }
-      double k = rho2 / D;
-      inv[i] = { C0 + k * dv, std::abs(k) * ri };
-    }
-
-    if (ok)
-    {
-      double s = 0;
-      for (int i = 0; i < m; i++) s += dst_sph[i].second / inv[i].second;
-      s /= m;
-      bool scale_ok = true;
-      for (int i = 0; i < m; i++)
-        if (std::abs(dst_sph[i].second / inv[i].second - s) > 1e-4 * s) { scale_ok = false; break; }
-
-      if (scale_ok)
-      {
-        Mat3 R = kabsch(inv, dst_sph, s);
-        Vec3 t = dst_sph[0].first - s * R * inv[0].first;
-        double err = residual(inv, dst_sph, s, R, t);
-        std::cout << tag << " inversion+similarity  rho2=" << rho2
-                  << "  s=" << s << "  residual=" << err << "\n";
-        if (err < 1e-4)
-        {
-          // M(p) = R * (s*rho2 * (p-C0)/|p-C0|²) + t
-          // struct: rotation*(scale*(p-center)/|p-center|²) + translation
-          src.mobius = { C0, t, R, s * rho2, true };
-          return true;
-        }
-      }
-    }
+    std::cout << "  FAIL\n";
+    return false;
   }
 
-  std::cerr << tag << " FAIL: could not compute Möbius transform\n";
-  return false;
+  std::cout << ((oo1_err > tol_ok || residual > tol_ok) ? "  APPROX\n" : "  OK\n");
+  src.mobius.M = M;
+  return true;
 }
 
 void Landscape::matchUpDestinationBalls()

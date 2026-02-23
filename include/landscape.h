@@ -15,10 +15,43 @@ struct Landscape
     { 
       balls.resize(num_balls); 
       for (int i = 0; i<num_balls; i++)
-      {
         balls[i].parent_set = this;
-      }
       conn.resize(num_balls); // defaults to disconnected
+    }
+    // Copy/move constructors must re-point parent_set to *this, not to the source.
+    Set(const Set &o)
+      : name(o.name), balls(o.balls), leaf_balls(o.leaf_balls),
+        conn(o.conn), leaf_union(o.leaf_union)
+    {
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+    }
+    Set(Set &&o)
+      : name(std::move(o.name)), balls(std::move(o.balls)),
+        leaf_balls(std::move(o.leaf_balls)),
+        conn(std::move(o.conn)), leaf_union(o.leaf_union)
+    {
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+    }
+    Set &operator=(const Set &o)
+    {
+      if (this == &o) return *this;
+      name = o.name; balls = o.balls; leaf_balls = o.leaf_balls;
+      conn = o.conn; leaf_union = o.leaf_union;
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+      return *this;
+    }
+    Set &operator=(Set &&o)
+    {
+      if (this == &o) return *this;
+      name = std::move(o.name); balls = std::move(o.balls);
+      leaf_balls = std::move(o.leaf_balls);
+      conn = std::move(o.conn); leaf_union = o.leaf_union;
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+      return *this;
     }
     std::string name;
     struct Ball // supports oriented spheres and oriented planes
@@ -38,18 +71,36 @@ struct Landscape
 
       struct Mobius
       {
-        Eigen::Vector3d center {Eigen::Vector3d(0,0,0)};
-        Eigen::Vector3d translation {Eigen::Vector3d(0,0,0)};
-        Eigen::Matrix3d rotation {Eigen::Matrix3d::Identity()};
-        double scale {1.0};
-        bool flip {false};
+        // O(4,1) conformal transformation, metric η = diag(1,1,1,1,-1).
+        // Sphere (c,r): σ̂ = (c, (1-|c|²+r²)/2, (1+|c|²-r²)/2) / r, σ̂·σ̂ = 1.
+        // Point  p:    P  = (p, (1-|p|²)/2, (1+|p|²)/2),           P·P  = 0.
+        // Apply to point:  Y = M*P;  p' = Y.xyz / (Y[3]+Y[4]).
+        // Apply to sphere: S = M*σ̂; r' = 1/(S[3]+S[4]); c' = S.xyz*r'.
+        Eigen::Matrix<double,5,5> M = Eigen::Matrix<double,5,5>::Identity();
 
-        Eigen::Vector3d transformMobius(const Eigen::Vector3d &p)
+        Eigen::Vector3d transformPoint(const Eigen::Vector3d &p) const
         {
-          Eigen::Vector3d v = p - center;
-          double dist_sq = flip ? v.squaredNorm() : 1.0;
-          Eigen::Vector3d v_inv = v / dist_sq;
-          return (rotation * (scale * v_inv)) + translation;
+          double r2 = p.squaredNorm();
+          Eigen::Matrix<double,5,1> P;
+          P << p.x(), p.y(), p.z(), (1.0-r2)/2.0, (1.0+r2)/2.0;
+          auto Y = M * P;
+          double w = Y(3) + Y(4);
+          return (std::abs(w) > 1e-15) ? Eigen::Vector3d(Y(0)/w, Y(1)/w, Y(2)/w)
+                                       : Eigen::Vector3d::Zero();
+        }
+
+        // Returns (centre, radius) of the transformed sphere.
+        std::pair<Eigen::Vector3d,double> transformSphere(
+            const Eigen::Vector3d &c, double r) const
+        {
+          double c2 = c.squaredNorm();
+          Eigen::Matrix<double,5,1> s;
+          s << c.x(), c.y(), c.z(),
+               (1.0-c2+r*r)/2.0, (1.0+c2-r*r)/2.0;
+          auto Y = M * (s / r);          // apply to unit-normalised σ̂
+          double inv_r = Y(3) + Y(4);   // = 1/r'
+          if (std::abs(inv_r) < 1e-15) return {{0,0,0}, 0};
+          return { Y.head<3>() / inv_r, 1.0/inv_r };
         }
       } mobius;
     };
