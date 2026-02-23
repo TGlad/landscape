@@ -81,14 +81,17 @@ void Landscape::Set::addLeafBall(int i, int j, int k, int l)
       err = b.dir.dot(Cx) - b.dist;
     }
     bool ball_ok = std::abs(err) < 1e-6;
-    std::cout << "[addLeafBall] ball " << idx[row]
-              << " ortho-err = " << err
-              << (ball_ok ? "  OK" : "  FAIL") << "\n";
-    if (!ball_ok) ok = false;
+    if (!ball_ok)
+      std::cout << "[addLeafBall] ball " << idx[row]
+                << " ortho-err = " << err
+                << (ball_ok ? "  OK" : "  FAIL") << "\n";
+    if (!ball_ok) 
+      ok = false;
   }
-  std::cout << "[addLeafBall] rx = " << rx
-            << "  |Cx| = " << Cx.norm()
-            << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
+  if (!ok)
+    std::cout << "[addLeafBall] rx = " << rx
+              << "  |Cx| = " << Cx.norm()
+              << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
 }
 
 void Landscape::Set::addLeafBall(int i, int j, int k)
@@ -386,10 +389,13 @@ bool Landscape::Set::verifyConnectivity(double tol) const
         {
           continue; // plane-plane separation not meaningful
         }
-        if (!ok) all_pass = false;
-        std::cout << "  [" << name << "] balls (" << i << "," << j << ") order=0"
-                  << " " << label << ": min=" << target << " actual=" << actual
-                  << " gap=" << (actual - target) << (ok ? "  OK" : "  FAIL") << "\n";
+        if (!ok)
+        { 
+          all_pass = false;
+          std::cout << "  [" << name << "] balls (" << i << "," << j << ") order=0"
+                    << " " << label << ": min=" << target << " actual=" << actual
+                    << " gap=" << (actual - target) << (ok ? "  OK" : "  FAIL") << "\n";
+        }
         continue;
       }
 
@@ -428,10 +434,13 @@ bool Landscape::Set::verifyConnectivity(double tol) const
       }
 
       ok = std::abs(actual - target) <= tol;
-      if (!ok) all_pass = false;
-      std::cout << "  [" << name << "] balls (" << i << "," << j << ") order=" << order
-                << " " << label << ": target=" << target << " actual=" << actual
-                << " err=" << (actual - target) << (ok ? "  OK" : "  FAIL") << "\n";
+      if (!ok) 
+      {
+        all_pass = false;
+        std::cout << "  [" << name << "] balls (" << i << "," << j << ") order=" << order
+                  << " " << label << ": target=" << target << " actual=" << actual
+                  << " err=" << (actual - target) << (ok ? "  OK" : "  FAIL") << "\n";
+      }
     }
   }
   return all_pass;
@@ -993,12 +1002,15 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   double oo1_err  = (M.transpose() * eta * M - eta).norm();
   double residual = (M * A - C).norm() / std::sqrt((double)m);
 
-  std::cout << tag << "  r=" << r
-            << "  O(4,1)_err=" << oo1_err
-            << "  residual=" << residual;
 
   const double tol_ok   = 1e-4;
   const double tol_fail = 5.0;//0.1;
+  if (residual > tol_ok)
+  {
+    std::cout << tag << "  r=" << r
+              << "  O(4,1)_err=" << oo1_err
+              << "  residual=" << residual;
+  }
 
   // Project M onto O(4,1) via damped Schulz iteration so that the stored
   // matrix is a valid Möbius transform even when the linear solve left it
@@ -1007,7 +1019,8 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   if (M.allFinite()) {
     const Mat5 Mort = eta_orthonormalize(M);
     double oo1_after = (Mort.transpose() * eta * Mort - eta).norm();
-    std::cout << "  oo1_after=" << oo1_after;
+    if (residual > tol_ok)
+      std::cout << "  oo1_after=" << oo1_after;
 
     src.mobius.M = Mort;
     decomposeMobius(Mort, src.mobius);
@@ -1025,7 +1038,8 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
       if (ref.allFinite() && fast.allFinite())
         decomp_err = std::max(decomp_err, (ref - fast).norm());
     }
-    std::cout << "  decomp_err=" << decomp_err;
+    if (residual > tol_ok)
+      std::cout << "  decomp_err=" << decomp_err;
   }
 
   // Treat NaN as FAIL: ieee nan comparisons always return false, so guard explicitly.
@@ -1037,7 +1051,8 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
     return false;
   }
 
-  std::cout << ((oo1_err > tol_ok || residual > tol_ok) ? "  APPROX\n" : "  OK\n");
+  if (residual > tol_ok)
+    std::cout << ((oo1_err > tol_ok || residual > tol_ok) ? "  APPROX\n" : "  OK\n");
   return true;
 }
 
