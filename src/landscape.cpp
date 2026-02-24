@@ -331,6 +331,10 @@ void Landscape::Set::applyConnectivity()
         }
 
         // Minimum-norm correction: δstate = -(error / ||g||²) * g
+        // Fixed balls contribute nothing to the gradient and receive no update.
+        if (bi.is_fixed) { g_dir_i = Eigen::Vector3d::Zero(); g_dist_i = 0; g_curv_i = 0; }
+        if (bj.is_fixed) { g_dir_j = Eigen::Vector3d::Zero(); g_dist_j = 0; g_curv_j = 0; }
+
         double g2 = g_dir_i.squaredNorm() + g_dist_i*g_dist_i + g_curv_i*g_curv_i
                   + g_dir_j.squaredNorm() + g_dist_j*g_dist_j + g_curv_j*g_curv_j;
         double step = -error / (g2 + damping);
@@ -1333,6 +1337,10 @@ void Landscape::applyConnectivity(int iterations)
         }
       }
 
+      // Fixed balls contribute nothing to the gradient and receive no update.
+      if (bi.is_fixed) { g_dir_i = Eigen::Vector3d::Zero(); g_dist_i = 0; g_curv_i = 0; }
+      if (bj.is_fixed) { g_dir_j = Eigen::Vector3d::Zero(); g_dist_j = 0; g_curv_j = 0; }
+
       double g2 = g_dir_i.squaredNorm() + g_dist_i*g_dist_i + g_curv_i*g_curv_i
                 + g_dir_j.squaredNorm() + g_dist_j*g_dist_j + g_curv_j*g_curv_j;
       double step = -error / (g2 + damping);
@@ -1343,8 +1351,6 @@ void Landscape::applyConnectivity(int iterations)
       bj.dist      += step * g_dist_j;
       bj.curvature  = std::max(1e-6, bj.curvature + step * g_curv_j);
     }
-
-    // ── (B) Cross-set Gram (inversive distance) constraints ────────────────
     //
     // For each pair (ti, tj) in the neighbourhood, enforce:
     //   δS(i,j) = δT(i,j)
@@ -1431,20 +1437,42 @@ void Landscape::applyConnectivity(int iterations)
       auto [gDirDA, gDistDA, gCurvDA] = grad_for(dA, rDA, gCdCDA, gCdrDA);
       auto [gDirDB, gDistDB, gCurvDB] = grad_for(dB, rDB, gCdCDB, gCdrDB);
 
-      double g2 = gDirSA.squaredNorm() + gDistSA*gDistSA + gCurvSA*gCurvSA
-                + gDirSB.squaredNorm() + gDistSB*gDistSB + gCurvSB*gCurvSB;
-                // Note: only the *source* side drives the step.  The dest set's
-                // geometry is fully determined by its own intra constraints; if we
-                // also pushed dest balls here they would fight back (oscillation).
-      double step = -error / (g2 + damping);
+      // Fixed balls contribute nothing; if the whole source side is fixed
+      // fall back to pushing the dest side instead.
+      if (sA.is_fixed) { gDirSA = Eigen::Vector3d::Zero(); gDistSA = 0; gCurvSA = 0; }
+      if (sB.is_fixed) { gDirSB = Eigen::Vector3d::Zero(); gDistSB = 0; gCurvSB = 0; }
 
-      // Source side only: pull shell-shell (src) toward the dest Gram matrix.
-      sA.dir += step * gDirSA;  sA.dir.normalize();
-      sA.dist += step*gDistSA;
-      sA.curvature = std::max(1e-6, sA.curvature + step*gCurvSA);
-      sB.dir += step * gDirSB;  sB.dir.normalize();
-      sB.dist += step*gDistSB;
-      sB.curvature = std::max(1e-6, sB.curvature + step*gCurvSB);
+      double g2_src = gDirSA.squaredNorm() + gDistSA*gDistSA + gCurvSA*gCurvSA
+                    + gDirSB.squaredNorm() + gDistSB*gDistSB + gCurvSB*gCurvSB;
+
+      if (g2_src > damping)
+      {
+        // Normal one-sided: pull source toward dest Gram.
+        double step = -error / (g2_src + damping);
+        sA.dir += step * gDirSA;  sA.dir.normalize();
+        sA.dist += step * gDistSA;
+        sA.curvature = std::max(1e-6, sA.curvature + step * gCurvSA);
+        sB.dir += step * gDirSB;  sB.dir.normalize();
+        sB.dist += step * gDistSB;
+        sB.curvature = std::max(1e-6, sB.curvature + step * gCurvSB);
+      }
+      else
+      {
+        // Source entirely fixed: push dest to match source Gram.
+        // error = δS − δT; gradient of error w.r.t. dest is −gDir{DA,DB},
+        // so to reduce error we move dest in the +gDir{DA,DB} direction.
+        if (dA.is_fixed) { gDirDA = Eigen::Vector3d::Zero(); gDistDA = 0; gCurvDA = 0; }
+        if (dB.is_fixed) { gDirDB = Eigen::Vector3d::Zero(); gDistDB = 0; gCurvDB = 0; }
+        double g2_dst = gDirDA.squaredNorm() + gDistDA*gDistDA + gCurvDA*gCurvDA
+                      + gDirDB.squaredNorm() + gDistDB*gDistDB + gCurvDB*gCurvDB;
+        double step = error / (g2_dst + damping);
+        dA.dir += step * gDirDA;  dA.dir.normalize();
+        dA.dist += step * gDistDA;
+        dA.curvature = std::max(1e-6, dA.curvature + step * gCurvDA);
+        dB.dir += step * gDirDB;  dB.dir.normalize();
+        dB.dist += step * gDistDB;
+        dB.curvature = std::max(1e-6, dB.curvature + step * gCurvDB);
+      }
     }
   }
 }

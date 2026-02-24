@@ -19,6 +19,7 @@ struct Landscape
       double curvature;
       std::string dest_set;
       int dest_ball_id {-1}; // -1 will pick the first in the set that works
+      bool is_fixed {false};
 
       // auto-set
       Set *parent_set; 
