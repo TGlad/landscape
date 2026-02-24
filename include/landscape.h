@@ -11,48 +11,6 @@ struct Landscape
   struct Type; // forward declaration so Set::Ball::type resolves to Landscape::Type
   struct Set
   {
-    Set(const std::string &name, int num_balls) : name(name) 
-    { 
-      balls.resize(num_balls); 
-      for (int i = 0; i<num_balls; i++)
-        balls[i].parent_set = this;
-      conn.resize(num_balls); // defaults to disconnected
-    }
-    // Copy/move constructors must re-point parent_set to *this, not to the source.
-    Set(const Set &o)
-      : name(o.name), balls(o.balls), leaf_balls(o.leaf_balls),
-        conn(o.conn), leaf_union(o.leaf_union)
-    {
-      for (auto &b : balls)      b.parent_set = this;
-      for (auto &b : leaf_balls) b.parent_set = this;
-    }
-    Set(Set &&o)
-      : name(std::move(o.name)), balls(std::move(o.balls)),
-        leaf_balls(std::move(o.leaf_balls)),
-        conn(std::move(o.conn)), leaf_union(o.leaf_union)
-    {
-      for (auto &b : balls)      b.parent_set = this;
-      for (auto &b : leaf_balls) b.parent_set = this;
-    }
-    Set &operator=(const Set &o)
-    {
-      if (this == &o) return *this;
-      name = o.name; balls = o.balls; leaf_balls = o.leaf_balls;
-      conn = o.conn; leaf_union = o.leaf_union;
-      for (auto &b : balls)      b.parent_set = this;
-      for (auto &b : leaf_balls) b.parent_set = this;
-      return *this;
-    }
-    Set &operator=(Set &&o)
-    {
-      if (this == &o) return *this;
-      name = std::move(o.name); balls = std::move(o.balls);
-      leaf_balls = std::move(o.leaf_balls);
-      conn = std::move(o.conn); leaf_union = o.leaf_union;
-      for (auto &b : balls)      b.parent_set = this;
-      for (auto &b : leaf_balls) b.parent_set = this;
-      return *this;
-    }
     std::string name;
     struct Ball // supports oriented spheres and oriented planes
     {
@@ -137,9 +95,53 @@ struct Landscape
     bool verifyConnectivity(double tol = 1e-4) const;
     void addLeafBall(int i, int j, int k, int l);
     void addLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
+
+    Set(const std::string &name, int num_balls) : name(name) 
+    { 
+      balls.resize(num_balls); 
+      for (int i = 0; i<num_balls; i++)
+        balls[i].parent_set = this;
+      conn.resize(num_balls); // defaults to disconnected
+    }
+    // Copy/move constructors must re-point parent_set to *this, not to the source.
+    Set(const Set &o)
+      : name(o.name), balls(o.balls), leaf_balls(o.leaf_balls),
+        conn(o.conn), leaf_union(o.leaf_union)
+    {
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+    }
+    Set(Set &&o)
+      : name(std::move(o.name)), balls(std::move(o.balls)),
+        leaf_balls(std::move(o.leaf_balls)),
+        conn(std::move(o.conn)), leaf_union(o.leaf_union)
+    {
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+    }
+    Set &operator=(const Set &o)
+    {
+      if (this == &o) return *this;
+      name = o.name; balls = o.balls; leaf_balls = o.leaf_balls;
+      conn = o.conn; leaf_union = o.leaf_union;
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+      return *this;
+    }
+    Set &operator=(Set &&o)
+    {
+      if (this == &o) return *this;
+      name = std::move(o.name); balls = std::move(o.balls);
+      leaf_balls = std::move(o.leaf_balls);
+      conn = std::move(o.conn); leaf_union = o.leaf_union;
+      for (auto &b : balls)      b.parent_set = this;
+      for (auto &b : leaf_balls) b.parent_set = this;
+      return *this;
+    }
   };
   std::deque<Set> sets;
 
+  void printConnectivity(bool show_valid_destinations = false); // called after all addSetToTypes() are called
   // Joint Gauss-Seidel over all sets simultaneously.
   // Enforces each set's own pairwise connectivity constraints AND, for every
   // ball that has a dest_set link, the inversive-distance matching constraints

@@ -119,6 +119,7 @@ int main()
   // Solves all sets simultaneously: per-set connectivity constraints AND
   // the inversive-distance matching constraints imposed by dest_set links.
   land.applyConnectivity();
+  land.printConnectivity();
 
   tree_tree.verifyConnectivity();
   shell_tree.verifyConnectivity();

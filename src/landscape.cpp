@@ -1056,6 +1056,55 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   return true;
 }
 
+
+void Landscape::printConnectivity(bool show_valid_destinations)
+{
+  for (auto &set : sets)
+  {
+    std::cout << set.name << ": " << set.balls.size() << " balls" << std::endl;
+    for (int i = 0; i<(int)set.balls.size(); i++)
+    {
+      auto &ball = set.balls[i];
+
+      if (show_valid_destinations)
+      {
+        std::cout << " ball " << i << ":";
+        Set *last_par = nullptr;
+        for (auto *dest_ball: ball.type->balls)
+        {
+          Set *par = dest_ball->parent_set;
+          for (int j = 0; j<par->balls.size(); j++)
+          {
+            if (&par->balls[j] == dest_ball)
+            {
+              if (par != last_par)
+                std::cout << " " << par->name << ": ";
+              std::cout << j << ",";
+            }
+          }
+          last_par = par;
+        }
+        std::cout << std::endl;
+      }
+      Set::Ball *dest_ball = ball.dest_ball;
+      if (dest_ball != nullptr && dest_ball != &ball)
+      {
+        if (!show_valid_destinations)
+          std::cout << " ball " << i << ":";
+        Set *par = dest_ball->parent_set;
+        std::cout << "  connects to " << par->name;
+        if (ball.dest_ball_id == -1)
+          std::cout << " first valid";
+        std::cout << " ball: ";
+        for (int j = 0; j<par->balls.size(); j++)
+          if (&par->balls[j] == dest_ball)
+            std::cout << j;
+        std::cout << std::endl;
+      }
+    }
+  }
+}
+
 // ── Joint global Gauss-Seidel ─────────────────────────────────────────────────
 //
 // Runs a single Gauss-Seidel iteration pool that simultaneously enforces:
