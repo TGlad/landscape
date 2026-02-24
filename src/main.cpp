@@ -23,22 +23,13 @@ int main()
   tree_tree.conn(1, 3) = 0;
   tree_tree.conn(2, 4) = 0;
   // now come up with some approximate locations
-  tree_tree.balls[0].dir = Eigen::Vector3d(0,0,1);
-  tree_tree.balls[1].dir = Eigen::Vector3d(1,0,0);
-  tree_tree.balls[2].dir = Eigen::Vector3d(0,1,0);
-  tree_tree.balls[3].dir = Eigen::Vector3d(-1,0,0);
-  tree_tree.balls[4].dir = Eigen::Vector3d(0,-1,0);
-  tree_tree.balls[5].dir = Eigen::Vector3d(0,0,-1);
-  
-  tree_tree.balls[0].dist = 1.0;
-  tree_tree.balls[0].curvature = 1.0;
-  tree_tree.balls[5].dist = 1.0;
-  tree_tree.balls[5].curvature = 1.0;
-  for (int i = 1; i<5; i++)
-  {
-    tree_tree.balls[i].dist = 0.3;
-    tree_tree.balls[i].curvature = 3.0;
-  }
+  double eq = 0.3; // equatorial distance and radius
+  tree_tree.balls[0].initSphere(Eigen::Vector3d(0,0,1), 1.0);
+  tree_tree.balls[1].initSphere(Eigen::Vector3d(eq,0,0), eq);
+  tree_tree.balls[2].initSphere(Eigen::Vector3d(0,eq,0), eq);
+  tree_tree.balls[3].initSphere(Eigen::Vector3d(-eq,0,0), eq);
+  tree_tree.balls[4].initSphere(Eigen::Vector3d(0,-eq,0), eq);
+  tree_tree.balls[5].initSphere(Eigen::Vector3d(0,0,-1), 1.0);
   land.addSetToTypes(tree_tree);
 
 
@@ -57,19 +48,12 @@ int main()
   shell_tree.conn(2, 5) = 3;
   shell_tree.conn(3, 5) = 2;
   // now come up with some approximate locations
-  shell_tree.balls[0].dir = Eigen::Vector3d(0,0,1);
-  shell_tree.balls[1].dir = Eigen::Vector3d(0.5,-1,0).normalized();
-  shell_tree.balls[2].dir = Eigen::Vector3d(0.5, 1,0).normalized();
-  shell_tree.balls[3].dir = Eigen::Vector3d(-1,0,0);
-  shell_tree.balls[4].dir = Eigen::Vector3d(0.3,0,0.3).normalized();
-  shell_tree.balls[5].dir = Eigen::Vector3d(0,0,-1);
-  for (int i = 0; i<6; i++)
-  {
-    shell_tree.balls[i].dist = 1.0;
-    shell_tree.balls[i].curvature = 1.0;
-  }
-  shell_tree.balls[4].dist = 0.3;
-  shell_tree.balls[4].curvature = 8.0;
+  shell_tree.balls[0].initSphere(Eigen::Vector3d(0,0,1), 1.0);
+  shell_tree.balls[1].initSphere(Eigen::Vector3d(0.5,-1,0), 1.0);
+  shell_tree.balls[2].initSphere(Eigen::Vector3d(0.5, 1,0), 1.0);
+  shell_tree.balls[3].initSphere(Eigen::Vector3d(-1,0,0), 1.0);
+  shell_tree.balls[4].initSphere(Eigen::Vector3d(0.3,0,0.3), 0.125);
+  shell_tree.balls[5].initSphere(Eigen::Vector3d(0,0,-1), 1.0);
   land.addSetToTypes(shell_tree);
 
   land.sets.push_back(Landscape::Set("shell-shell", 6));
@@ -85,21 +69,13 @@ int main()
     last_i = i;
   }
   // now come up with some approximate locations
-  shell_shell.balls[0].dir = Eigen::Vector3d(0,0,1);
-  shell_shell.balls[1].dir = Eigen::Vector3d(1,0,0);
-  shell_shell.balls[2].dir = Eigen::Vector3d(0,1,0);
-  shell_shell.balls[3].dir = Eigen::Vector3d(-1,0,0);
-  shell_shell.balls[4].dir = Eigen::Vector3d(0,-1,0);
-  shell_shell.balls[5].dir = Eigen::Vector3d(0,0,-1);
-  for (int i = 0; i<6; i++)
-  {
-    shell_shell.balls[i].dist = 1.0;
-    shell_shell.balls[i].curvature = 1.0;
-  }
-  shell_shell.balls[0].dist = 0.1;
-  shell_shell.balls[5].dist = 0.1;
-  shell_shell.balls[0].curvature = 4.0;
-  shell_shell.balls[5].curvature = 4.0;
+  shell_shell.balls[0].initSphere(Eigen::Vector3d(0,0,0.35), 0.25);
+  shell_shell.balls[1].initSphere(Eigen::Vector3d(1,0,0), 1.0);
+  shell_shell.balls[2].initSphere(Eigen::Vector3d(0,1,0), 1.0);
+  shell_shell.balls[3].initSphere(Eigen::Vector3d(-1,0,0), 1.0);
+  shell_shell.balls[4].initSphere(Eigen::Vector3d(0,-1,0), 1.0);
+  shell_shell.balls[5].initSphere(Eigen::Vector3d(0,0,-0.35), 0.25);
+
   shell_shell.balls[0].dest_set = "tree-tree";
   shell_shell.balls[0].dest_ball_id = 0;
   land.addSetToTypes(shell_shell);
@@ -110,8 +86,8 @@ int main()
   shell_sponge = shell_shell; // shortcut
   shell_sponge.name = "shell-sponge"; // restore name after copy
   shell_sponge.conn(0,5) = 4; // make it a sponge
-  shell_sponge.balls[0].dist = 0.01;
-  shell_sponge.balls[5].dist = 0.01;
+  shell_sponge.balls[0].initSphere(Eigen::Vector3d(0,0,0.251), 0.25);
+  shell_sponge.balls[5].initSphere(Eigen::Vector3d(0,0,-0.251), 0.25);
   shell_sponge.balls[0].dest_set = "";
   land.addSetToTypes(shell_sponge);
 

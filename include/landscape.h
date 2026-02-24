@@ -21,6 +21,19 @@ struct Landscape
       int dest_ball_id {-1}; // -1 will pick the first in the set that works
       bool is_fixed {false};
 
+      void initSphere(const Eigen::Vector3d &p, double rad)
+      {
+        dir = p.normalized();
+        dist = p.norm() - rad;
+        curvature = 1.0/rad;
+      }
+      void initPlane(const Eigen::Vector3d &normal, double d)
+      {
+        dir = normal.normalized();
+        dist = d;
+        curvature = 0.0;
+      }
+
       // auto-set
       Set *parent_set; 
       Type *type;
