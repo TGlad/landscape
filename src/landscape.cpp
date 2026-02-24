@@ -164,7 +164,7 @@ void Landscape::Set::addLeafBall(int i, int j, int k)
   leaf.curvature  = 1.0 / rx;
   leaf_balls.push_back(leaf);
 }
-
+/*
 void Landscape::Set::applyConnectivity()
 {
   // Gauss-Seidel iterated least squares: for each pair constraint compute the gradient of the
@@ -348,7 +348,7 @@ void Landscape::Set::applyConnectivity()
     } // end pairs loop
   } // end iterations
 }
-
+*/
 bool Landscape::Set::verifyConnectivity(double tol) const
 {
   bool all_pass = true;
