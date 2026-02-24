@@ -840,7 +840,8 @@ static void decomposeMobius(const Mat5 &M,
 }
 
 static bool computeMobiusTransform(Landscape::Set::Ball &src,
-                                   Landscape::Set::Ball &dst)
+                                   Landscape::Set::Ball &dst,
+                                   bool quiet = false)
 {
   src.mobius.M = Mat5::Identity();
 
@@ -850,7 +851,7 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
 
   if (m < 2)
   {
-    std::cout << tag << " identity (isolated)\n";
+    if (!quiet) std::cout << tag << " identity (isolated)\n";
     return true;
   }
 
@@ -883,7 +884,7 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
     for (int j = 0; j < m; j++)
       gram_err = std::max(gram_err, std::abs(
           mink_dot(A.col(i), A.col(j)) - mink_dot(C.col(i), C.col(j))));
-  if (gram_err > 1e-3)
+  if (!quiet && gram_err > 1e-3)
   {
     std::cout << tag << " [Gram=" << gram_err << "] ";
     if (gram_err > 0.1)
@@ -1006,57 +1007,60 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   double oo1_err  = (M.transpose() * eta * M - eta).norm();
   double residual = (M * A - C).norm() / std::sqrt((double)m);
 
-
-  const double tol_ok   = 1e-4;
-  const double tol_fail = 5.0;//0.1;
-  if (residual > tol_ok)
-  {
-    std::cout << tag << "  r=" << r
-              << "  O(4,1)_err=" << oo1_err
-              << "  residual=" << residual;
-  }
+  const double tol_ok   = 1e-5;
+  const double tol_fail = 0.1;
 
   // Project M onto O(4,1) via damped Schulz iteration so that the stored
   // matrix is a valid Möbius transform even when the linear solve left it
   // with residual O(4,1) error.  The projected matrix Mort is used for both
   // transformPoint and the T,C,s,R decomposition so the two are consistent.
+  double oo1_after = oo1_err, decomp_err = 0.0;
   if (M.allFinite()) {
     const Mat5 Mort = eta_orthonormalize(M);
-    double oo1_after = (Mort.transpose() * eta * Mort - eta).norm();
-    if (residual > tol_ok)
-      std::cout << "  oo1_after=" << oo1_after;
+    oo1_after = (Mort.transpose() * eta * Mort - eta).norm();
 
     src.mobius.M = Mort;
     decomposeMobius(Mort, src.mobius);
 
     // Verify internal consistency: transformPoint (uses Mort) must match
     // transformDecomposed (uses T,C,s,R extracted from Mort).
-    static const Eigen::Vector3d test_pts[] = {
-      {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {0.5,0.3,-0.7}, {2,-1,3}
-    };
-    double decomp_err = 0.0;
-    for (const auto &pt : test_pts)
-    {
-      auto ref  = src.mobius.transformPoint(pt);
-      auto fast = src.mobius.transformDecomposed(pt);
-      if (ref.allFinite() && fast.allFinite())
-        decomp_err = std::max(decomp_err, (ref - fast).norm());
+    if (!quiet) {
+      static const Eigen::Vector3d test_pts[] = {
+        {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {0.5,0.3,-0.7}, {2,-1,3}
+      };
+      for (const auto &pt : test_pts)
+      {
+        auto ref  = src.mobius.transformPoint(pt);
+        auto fast = src.mobius.transformDecomposed(pt);
+        if (ref.allFinite() && fast.allFinite())
+          decomp_err = std::max(decomp_err, (ref - fast).norm());
+      }
     }
-    if (residual > tol_ok)
-      std::cout << "  decomp_err=" << decomp_err;
   }
 
-  // Treat NaN as FAIL: ieee nan comparisons always return false, so guard explicitly.
-  bool bad = !std::isfinite(oo1_err) || !std::isfinite(residual)
-             || oo1_err > tol_fail || residual > tol_fail;
+  // Treat NaN as FAIL: use oo1_after (post-Schulz) since that is the stored
+  // value — the raw oo1_err can be large even when projection succeeds.
+  bool bad = !std::isfinite(oo1_after) || !std::isfinite(residual)
+             || oo1_after > tol_fail || residual > tol_fail;
+
+  if (!quiet && (residual > tol_ok || bad))
+  {
+    std::cout << tag << "  r=" << r
+              << "  gram_err=" << gram_err
+              << "  O(4,1)_err=" << oo1_err
+              << "  oo1_after=" << oo1_after
+              << "  residual=" << residual
+              << "  decomp_err=" << decomp_err;
+  }
+
   if (bad)
   {
-    std::cout << "  FAIL\n";
+    if (!quiet) std::cout << "  FAIL\n";
     return false;
   }
 
-  if (residual > tol_ok)
-    std::cout << ((oo1_err > tol_ok || residual > tol_ok) ? "  APPROX\n" : "  OK\n");
+  if (!quiet && residual > tol_ok)
+    std::cout << ((oo1_after > tol_ok || residual > tol_ok) ? "  APPROX\n" : "  OK\n");
   return true;
 }
 
@@ -1179,39 +1183,58 @@ void Landscape::applyConnectivity(int iterations)
         intra_pairs.push_back({si, i, j});
   }
 
-  // Cross-set Gram pairs: for each ball B with a non-self dest_ball D,
-  // emit one constraint per pair of type-neighbours of B.
-  // type_to_set[ti] = set ball index; index 0 is the ball itself, ti > 0 are
-  // its canonical neighbours.  addSetToTypes must be called first (main.cpp
-  // already guarantees this ordering).
-  //
-  // We emit pairs (ti, tj) with ti < tj.  We store {ball_in_S, ball_in_T, ti, tj}.
-  struct GramPair { Set::Ball *src; Set::Ball *dst; int ti, tj; };
-  std::vector<GramPair> gram_pairs;
+  // Cross-set Möbius pairs: for each ball B with a non-self dest_ball D,
+  // emit one entry per type-neighbour of B.  During solving we enforce that
+  // M (recomputed from current ball positions every 50 iterations) maps the
+  // source conformal vector σ̂_s to the dest conformal vector σ̂_d:
+  //   e = M·σ̂_s − σ̂_d = 0
+  // This is a direct 5D residual constraint on M itself, far more precise
+  // than the old pairwise inversive-distance proxy.
+  struct MobiusPair { Set::Ball *src; Set::Ball *dst; int ti; };
+  std::vector<MobiusPair> mobius_pairs;
+
+  // Deduplicated list of unique src→dst links for M recomputation.
+  struct MobiusLink { Set::Ball *src; Set::Ball *dst; };
+  std::vector<MobiusLink> mobius_links;
+
   for (auto &set : sets)
   {
     for (auto &ball : set.balls)
     {
       if (ball.dest_ball == nullptr || ball.dest_ball == &ball) continue;
-
-      const std::vector<int> &src_nbrs = ball.type_to_set;            // ti → src set-ball idx
-      const std::vector<int> &dst_nbrs = ball.dest_ball->type_to_set; // ti → dst set-ball idx
-
-      int m = (int)std::min(src_nbrs.size(), dst_nbrs.size());
+      mobius_links.push_back({&ball, ball.dest_ball});
+      int m = (int)std::min(ball.type_to_set.size(), ball.dest_ball->type_to_set.size());
       for (int ti = 0; ti < m; ti++)
-        for (int tj = 0; tj < ti; tj++)
-          gram_pairs.push_back({&ball, ball.dest_ball, ti, tj});
+        mobius_pairs.push_back({&ball, ball.dest_ball, ti});
     }
   }
 
   std::mt19937 rng(42);
+  bool warmup_done = false;
 
   // ── Step 3: iterate ──────────────────────────────────────────────────────
-  for (int it = 0; it < iterations; it++)
+  // The first `warmup_iters` iterations run intra constraints only.  Once the
+  // per-set configurations are reasonably converged we compute M from those
+  // positions and hold it FIXED for the remainder of the solve.
+  //
+  // M must NOT be refreshed during the joint solve.  Doing so creates a
+  // collapsing attractor: as src and dst drift toward each other the refreshed
+  // M→I, which then tightens the src≈dst constraint further — ending with
+  // both sets at the same position rather than a proper Möbius image of each.
+  const int warmup_iters = 500;
+  for (int it = 0; it < iterations + warmup_iters; it++)
   {
+    // After the warm-up phase, compute M once and start applying mobius pairs.
+    if (!warmup_done && it >= warmup_iters)
+    {
+      for (auto &lk : mobius_links)
+        computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true);
+      warmup_done = true;
+    }
+
     // Shuffle both pools independently to avoid ordering bias.
     std::shuffle(intra_pairs.begin(), intra_pairs.end(), rng);
-    std::shuffle(gram_pairs.begin(), gram_pairs.end(), rng);
+    std::shuffle(mobius_pairs.begin(), mobius_pairs.end(), rng);
 
     // ── (A) Within-set constraints ─────────────────────────────────────────
     for (auto [si, i, j] : intra_pairs)
@@ -1351,128 +1374,84 @@ void Landscape::applyConnectivity(int iterations)
       bj.dist      += step * g_dist_j;
       bj.curvature  = std::max(1e-6, bj.curvature + step * g_curv_j);
     }
+    // ── (B) Möbius transform residual constraints ─────────────────────────
     //
-    // For each pair (ti, tj) in the neighbourhood, enforce:
-    //   δS(i,j) = δT(i,j)
-    //   where δ(a,b) = (|Ca−Cb|² − ra² − rb²) / (2 ra rb)
+    // For each type-neighbour ti of each src→dst link, enforce M·σ̂_s = σ̂_d
+    // where M = src.mobius.M (refreshed every 50 iterations) and
+    //   σ̂(C,r) = (C/r, (1−|C|²+r²)/(2r), (1+|C|²−r²)/(2r))
     //
-    // error = δS − δT
-    // Gradient of δ(a,b) w.r.t. Ca: ΔCab / (ra rb)
-    // Gradient of δ(a,b) w.r.t. ra: −(ra² + |ΔC|² − rb²) / (2 ra² rb)
-    //                              = −(δ(a,b)/ra + 1/rb)   [alternative form]
+    // Objective: f = ½‖e‖²  where  e = M·σ̂_s − σ̂_d.
+    //   ∂f/∂σ̂_s = Mᵀe,  ∂f/∂σ̂_d = −e.
     //
-    // Only the source side is updated; the dest geometry is fixed by its own
-    // intra constraints and updating it would cause oscillation.
-    for (auto &gp : gram_pairs)
-    {
-      Set::Ball &src_ball = *gp.src;
-      Set::Ball &dst_ball = *gp.dst;
-      const auto &src_n2s = src_ball.type_to_set; // may be empty if addSetToTypes not called
-      const auto &dst_n2s = dst_ball.type_to_set;
-
-      // Resolve set-ball indices for this (ti, tj) pair.
-      int si_idx = src_n2s[gp.ti], sj_idx = src_n2s[gp.tj];
-      int di_idx = dst_n2s[gp.ti], dj_idx = dst_n2s[gp.tj];
-
-      Set &src_set = *src_ball.parent_set;
-      Set &dst_set = *dst_ball.parent_set;
-      Set::Ball &sA = src_set.balls[si_idx];
-      Set::Ball &sB = src_set.balls[sj_idx];
-      Set::Ball &dA = dst_set.balls[di_idx];
-      Set::Ball &dB = dst_set.balls[dj_idx];
-
-      // Only handle sphere-sphere pairs for now (planes have infinite inversive dist).
-      if (sA.curvature == 0.0 || sB.curvature == 0.0 ||
-          dA.curvature == 0.0 || dB.curvature == 0.0) continue;
-
-      double rSA = 1.0/sA.curvature, rSB = 1.0/sB.curvature;
-      double rDA = 1.0/dA.curvature, rDB = 1.0/dB.curvature;
-      Eigen::Vector3d CSA = sA.dir*(sA.dist+rSA), CSB = sB.dir*(sB.dist+rSB);
-      Eigen::Vector3d CDA = dA.dir*(dA.dist+rDA), CDB = dB.dir*(dB.dist+rDB);
-
-      auto inv_dist = [](const Eigen::Vector3d &Ca, double ra,
-                         const Eigen::Vector3d &Cb, double rb)
-      {
-        return ((Ca-Cb).squaredNorm() - ra*ra - rb*rb) / (2.0*ra*rb);
-      };
-      double delta_S = inv_dist(CSA, rSA, CSB, rSB);
-      double delta_T = inv_dist(CDA, rDA, CDB, rDB);
-      double error   = delta_S - delta_T;
-
-      // Gradients of δS w.r.t. the four source spheres:
-      //   dδ/dCa = (Ca−Cb)/(ra rb)
-      //   dδ/dra = −(ra² + |ΔC|² − rb²) / (2 ra² rb)  =  −(δ+1/rb) / ra
-      //            but computed directly to avoid cancellation.
-      double d2S = (CSA-CSB).squaredNorm();
-      double inv_rSArSB = 1.0/(rSA*rSB);
-      Eigen::Vector3d gCdCSA =  (CSA-CSB) * inv_rSArSB;
-      Eigen::Vector3d gCdCSB = -(CSA-CSB) * inv_rSArSB;
-      double gCdrSA = -(rSA*rSA + d2S - rSB*rSB) / (2.0*rSA*rSA*rSB);
-      double gCdrSB = -(rSB*rSB + d2S - rSA*rSA) / (2.0*rSB*rSB*rSA);
-
-      // Chain to (dir, dist, curvature): dC/d(dist) = dir, dC/d(dir_tangent) = (dist+r)*I_tang,
-      // dr/d(curvature) = -1/curvature².
-      auto grad_for = [](const Set::Ball &b, double r,
-                         const Eigen::Vector3d &gC, double gr)
+    // Chain dσ̂/d(C,r) (Jacobian rows: I/r | −Cᵀ/r | Cᵀ/r) then
+    // d(C,r)/d(dir,dist,curvature):
+    //   gC = (gs[0:3] + (gs[4]−gs[3])·C) / r
+    //   gr = (−C/r²)·gs[0:3] + (r²−1+|C|²)/(2r²)·gs[3] − (r²+1+|C|²)/(2r²)·gs[4]
+    //   g_dir  = (dist+r)·(gC − (gC·d̂)·d̂)
+    //   g_dist = gC·d̂
+    //   g_curv = (gC·d̂ + gr)·(−1/κ²)
+    //
+    // GS step: δ = −(½‖e‖²/‖∇f‖²)·∇f  — zeros f in one linear step.
+    auto sigma_to_ball_grad = [](const Set::Ball &b, double r,
+                                 const Eigen::Vector3d &C, const Vec5 &gs)
         -> std::tuple<Eigen::Vector3d, double, double>
-      {
-        Eigen::Vector3d g_dir  = (b.dist+r)*(gC - gC.dot(b.dir)*b.dir);
-        double          g_dist = gC.dot(b.dir);
-        double          g_curv = (gr + gC.dot(b.dir)) * (-1.0/(b.curvature*b.curvature));
-        return {g_dir, g_dist, g_curv};
-      };
+    {
+      double C2 = C.squaredNorm();
+      Eigen::Vector3d gC = (gs.head<3>() + (gs(4) - gs(3)) * C) / r;
+      double gr = (-C / (r*r)).dot(gs.head<3>())
+                + (r*r - 1.0 + C2) / (2.0*r*r) * gs(3)
+                - (r*r + 1.0 + C2) / (2.0*r*r) * gs(4);
+      Eigen::Vector3d g_dir  = (b.dist + r) * (gC - gC.dot(b.dir) * b.dir);
+      double          g_dist = gC.dot(b.dir);
+      double          g_curv = (gC.dot(b.dir) + gr) * (-1.0 / (b.curvature * b.curvature));
+      return {g_dir, g_dist, g_curv};
+    };
 
-      auto [gDirSA, gDistSA, gCurvSA] = grad_for(sA, rSA, gCdCSA, gCdrSA);
-      auto [gDirSB, gDistSB, gCurvSB] = grad_for(sB, rSB, gCdCSB, gCdrSB);
+    if (!warmup_done) continue; // only apply cross-set constraints after warm-up
 
-      // Gradients of δT are the negatives of δS gradients (error = δS − δT),
-      // but applied to the dest spheres dA, dB.
-      double d2T = (CDA-CDB).squaredNorm();
-      double inv_rDArDB = 1.0/(rDA*rDB);
-      Eigen::Vector3d gCdCDA =  (CDA-CDB) * inv_rDArDB;
-      Eigen::Vector3d gCdCDB = -(CDA-CDB) * inv_rDArDB;
-      double gCdrDA = -(rDA*rDA + d2T - rDB*rDB) / (2.0*rDA*rDA*rDB);
-      double gCdrDB = -(rDB*rDB + d2T - rDA*rDA) / (2.0*rDB*rDB*rDA);
+    for (auto &mp : mobius_pairs)
+    {
+      Set::Ball &src_ball = *mp.src;
+      Set::Ball &dst_ball = *mp.dst;
 
-      auto [gDirDA, gDistDA, gCurvDA] = grad_for(dA, rDA, gCdCDA, gCdrDA);
-      auto [gDirDB, gDistDB, gCurvDB] = grad_for(dB, rDB, gCdCDB, gCdrDB);
+      int si = src_ball.type_to_set[mp.ti];
+      int di = dst_ball.type_to_set[mp.ti];
 
-      // Fixed balls contribute nothing; if the whole source side is fixed
-      // fall back to pushing the dest side instead.
-      if (sA.is_fixed) { gDirSA = Eigen::Vector3d::Zero(); gDistSA = 0; gCurvSA = 0; }
-      if (sB.is_fixed) { gDirSB = Eigen::Vector3d::Zero(); gDistSB = 0; gCurvSB = 0; }
+      Set::Ball &sA = src_ball.parent_set->balls[si];
+      Set::Ball &dA = dst_ball.parent_set->balls[di];
 
-      double g2_src = gDirSA.squaredNorm() + gDistSA*gDistSA + gCurvSA*gCurvSA
-                    + gDirSB.squaredNorm() + gDistSB*gDistSB + gCurvSB*gCurvSB;
+      if (sA.curvature == 0.0 || dA.curvature == 0.0) continue;
 
-      if (g2_src > damping)
-      {
-        // Normal one-sided: pull source toward dest Gram.
-        double step = -error / (g2_src + damping);
-        sA.dir += step * gDirSA;  sA.dir.normalize();
-        sA.dist += step * gDistSA;
-        sA.curvature = std::max(1e-6, sA.curvature + step * gCurvSA);
-        sB.dir += step * gDirSB;  sB.dir.normalize();
-        sB.dist += step * gDistSB;
-        sB.curvature = std::max(1e-6, sB.curvature + step * gCurvSB);
-      }
-      else
-      {
-        // Source entirely fixed: push dest to match source Gram.
-        // error = δS − δT; gradient of error w.r.t. dest is −gDir{DA,DB},
-        // so to reduce error we move dest in the +gDir{DA,DB} direction.
-        if (dA.is_fixed) { gDirDA = Eigen::Vector3d::Zero(); gDistDA = 0; gCurvDA = 0; }
-        if (dB.is_fixed) { gDirDB = Eigen::Vector3d::Zero(); gDistDB = 0; gCurvDB = 0; }
-        double g2_dst = gDirDA.squaredNorm() + gDistDA*gDistDA + gCurvDA*gCurvDA
-                      + gDirDB.squaredNorm() + gDistDB*gDistDB + gCurvDB*gCurvDB;
-        double step = error / (g2_dst + damping);
-        dA.dir += step * gDirDA;  dA.dir.normalize();
-        dA.dist += step * gDistDA;
-        dA.curvature = std::max(1e-6, dA.curvature + step * gCurvDA);
-        dB.dir += step * gDirDB;  dB.dir.normalize();
-        dB.dist += step * gDistDB;
-        dB.curvature = std::max(1e-6, dB.curvature + step * gCurvDB);
-      }
+      double rS = 1.0/sA.curvature, rD = 1.0/dA.curvature;
+      Eigen::Vector3d CS = sA.dir*(sA.dist+rS), CD = dA.dir*(dA.dist+rD);
+
+      Vec5 sigma_s = conformal_sphere(CS, rS);
+      Vec5 sigma_d = conformal_sphere(CD, rD);
+
+      // Residual: how far M·σ̂_s is from σ̂_d.
+      Vec5 e = src_ball.mobius.M * sigma_s - sigma_d;
+
+      // Gradient of ½‖e‖² w.r.t. σ̂_s is Mᵀe; w.r.t. σ̂_d is −e.
+      Vec5 g_sigma_s = src_ball.mobius.M.transpose() * e;
+      Vec5 g_sigma_d = -e;
+
+      auto [gDirS, gDistS, gCurvS] = sigma_to_ball_grad(sA, rS, CS, g_sigma_s);
+      auto [gDirD, gDistD, gCurvD] = sigma_to_ball_grad(dA, rD, CD, g_sigma_d);
+
+      if (sA.is_fixed) { gDirS = Eigen::Vector3d::Zero(); gDistS = 0.0; gCurvS = 0.0; }
+      if (dA.is_fixed) { gDirD = Eigen::Vector3d::Zero(); gDistD = 0.0; gCurvD = 0.0; }
+
+      double g2 = gDirS.squaredNorm() + gDistS*gDistS + gCurvS*gCurvS
+                + gDirD.squaredNorm() + gDistD*gDistD + gCurvD*gCurvD;
+
+      double step = -e.squaredNorm() / (2.0 * (g2 + damping));
+
+      sA.dir += step * gDirS;  sA.dir.normalize();
+      sA.dist += step * gDistS;
+      sA.curvature = std::max(1e-6, sA.curvature + step * gCurvS);
+      dA.dir += step * gDirD;  dA.dir.normalize();
+      dA.dist += step * gDistD;
+      dA.curvature = std::max(1e-6, dA.curvature + step * gCurvD);
     }
   }
 }
