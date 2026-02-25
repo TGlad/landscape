@@ -434,23 +434,32 @@ void Landscape::printConnectivity(bool show_valid_destinations)
 
       if (show_valid_destinations)
       {
-        std::cout << " ball " << i << ":";
+        bool written_ball = false;
         Set *last_par = nullptr;
         for (auto *dest_ball: ball.type->balls)
         {
           Set *par = dest_ball->parent_set;
-          for (int j = 0; j<par->balls.size(); j++)
+          if (par != ball.parent_set)
           {
-            if (&par->balls[j] == dest_ball)
+            for (int j = 0; j<par->balls.size(); j++)
             {
-              if (par != last_par)
-                std::cout << " " << par->name << ": ";
-              std::cout << j << ",";
+              if (&par->balls[j] == dest_ball)
+              {
+                if (!written_ball)
+                {
+                  std::cout << " ball " << i << ":";
+                  written_ball = true;
+                }
+                if (par != last_par)
+                  std::cout << " " << par->name << ": ";
+                std::cout << j << ",";
+              }
             }
           }
           last_par = par;
         }
-        std::cout << std::endl;
+        if (written_ball)
+          std::cout << std::endl;
       }
       Set::Ball *dest_ball = ball.dest_ball;
       if (dest_ball != nullptr && dest_ball != &ball)

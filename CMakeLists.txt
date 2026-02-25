@@ -17,6 +17,7 @@ add_executable(hello
     src/landscape.cpp
     src/outputcode.cpp
     src/set.cpp
+    src/simple.hpp
     src/type.cpp
 )
 
