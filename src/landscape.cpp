@@ -9,7 +9,7 @@ static const double pi = std::acos(-1.0);
 #include <iostream>
 #include <vector>
 #include <Eigen/Dense>
-
+/* alternative method that seems to be simpler
 void Landscape::Set::findOrthogonalSphere(int I, int J, int K, int L)
 {
   Eigen::Matrix4d A;
@@ -31,7 +31,7 @@ void Landscape::Set::findOrthogonalSphere(int I, int J, int K, int L)
     A(i, 3) = k; // Coefficient for X
 
     b(i) = -(k * d * d + 2.0 * d);
-}
+  }
 
   // Solve for [Px, Py, Pz, X]
   Eigen::Vector4d sol = A.colPivHouseholderQr().solve(b);
@@ -53,10 +53,19 @@ void Landscape::Set::findOrthogonalSphere(int I, int J, int K, int L)
   leaf.curvature  = 1.0 / rad;
   leaf_balls.push_back(leaf);
 }
-
-
+*/
 
 void Landscape::Set::addLeafBall(int i, int j, int k, int l)
+{
+  leaf_ball_ids.push_back(Eigen::Vector4i(i,j,k,l));
+}
+void Landscape::Set::addLeafBall(int i, int j, int k)
+{
+  leaf_ball_ids.push_back(Eigen::Vector4i(i,j,k,-1));
+}
+
+
+void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
 {
   // A sphere X orthogonal to sphere A satisfies |Cx-Ca|² = rx²+ra².
   // Expanding with w = |Cx|²-rx²:  2*Ca·Cx - w = |Ca|²-ra²
@@ -144,11 +153,10 @@ void Landscape::Set::addLeafBall(int i, int j, int k, int l)
               << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
 }
 
-void Landscape::Set::addLeafBall(int i, int j, int k)
+void Landscape::Set::calculateLeafBall(int i, int j, int k)
 {
   // Orthogonal sphere whose centre lies in the plane of the 3 ball centres.
   // 3 orthogonality rows (same form as the 4-ball version) + 1 plane-constraint row.
-
   const std::array<int,3> idx = {i, j, k};
   Eigen::Matrix4d M;
   Eigen::Vector4d rhs;

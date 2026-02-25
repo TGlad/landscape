@@ -109,11 +109,15 @@ struct Landscape
     Adj conn; // connectivity. -1=kissing, 0 is disconnected
     bool leaf_union; // union if true, else intersection
 
-    bool verifyConnectivity(double tol = 1e-4) const;
     void addLeafBall(int i, int j, int k, int l);
     void addLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
     void findOrthogonalSphere(int I, int J, int K, int L);
 
+    // internal stuff
+    std::vector<Eigen::Vector4i> leaf_ball_ids;
+    bool verifyConnectivity(double tol = 1e-4) const;
+    void calculateLeafBall(int i, int j, int k, int l);
+    void calculateLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
     Set(const std::string &name, int num_balls) : name(name) 
     { 
       balls.resize(num_balls); 
@@ -167,6 +171,25 @@ struct Landscape
   // Call this once after all sets (and their dest_set/dest_ball_id fields)
   // are configured, instead of calling Set::applyConnectivity() individually.
   void applyConnectivity(int iterations = 4000);
+  void verifyConnectivity()
+  {
+    for (auto &set: sets)
+      set.verifyConnectivity();
+  }
+  
+  void calculateLeafBalls()
+  {
+    for (auto &set: sets)
+    {
+      for (auto &lbi: set.leaf_ball_ids)
+      {
+        if (lbi[3] == -1)
+          set.calculateLeafBall(lbi[0], lbi[1], lbi[2]);
+        else 
+          set.calculateLeafBall(lbi[0], lbi[1], lbi[2], lbi[3]);
+      }
+    }
+  }
 
   struct Type
   {
