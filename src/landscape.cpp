@@ -528,7 +528,7 @@ void Landscape::applyConnectivity(int iterations)
   // Each entry is one scalar constraint.  We use a tagged union approach:
   // either a within-set pair (conn order), or a cross-set Gram-matching pair.
   const double damping = 1e-10;
-  const double k = 0.0; // minimum extra gap for separation constraints
+  const double k = 0.1; // minimum extra gap for separation constraints
 
   // Within-set pairs: {set index, ball i, ball j}
   struct IntraPair { int si, i, j; };
