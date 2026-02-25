@@ -32,16 +32,15 @@ int main()
     tree_tree.conn(2, 4) = 0;
     // now come up with some approximate locations
     double eq = 0.3; // equatorial distance and radius
-    tree_tree.balls[0].initSphere(Eigen::Vector3d(0,0,1), 1.0);
-    tree_tree.balls[1].initSphere(Eigen::Vector3d(eq,0,0), eq);
-    tree_tree.balls[2].initSphere(Eigen::Vector3d(0,eq,0), eq);
+    tree_tree.balls[0].initSphere(Eigen::Vector3d(0, 0, 1), 1.0);
+    tree_tree.balls[1].initSphere(Eigen::Vector3d(eq,0, 0), eq);
+    tree_tree.balls[2].initSphere(Eigen::Vector3d(0,eq, 0), eq);
     tree_tree.balls[3].initSphere(Eigen::Vector3d(-eq,0,0), eq);
     tree_tree.balls[4].initSphere(Eigen::Vector3d(0,-eq,0), eq);
-    tree_tree.balls[5].initSphere(Eigen::Vector3d(0,0,-1), 1.0);
+    tree_tree.balls[5].initSphere(Eigen::Vector3d(0, 0,-1), 1.0);
     tree_tree.addLeafBall(0,1,2,3);
     tree_tree.addLeafBall(2,3,4,5);
     tree_tree.leaf_union = true;
-    land.addSetToTypes(tree_tree);
   }
 
 
@@ -68,7 +67,6 @@ int main()
     shell_tree.balls[3].initSphere(Eigen::Vector3d(-1,0,0), 1.0);
     shell_tree.balls[4].initSphere(Eigen::Vector3d(0.3,0,0.3), 0.125);
     shell_tree.balls[5].initSphere(Eigen::Vector3d(0,0,-1), 1.0);
-    land.addSetToTypes(shell_tree);
   }
 
   if (std::find(sets.begin(), sets.end(), "shell-shell") != sets.end())
@@ -98,7 +96,6 @@ int main()
     shell_shell.addLeafBall(0,1,2,4);
     shell_shell.addLeafBall(2,3,4,5);
     shell_shell.leaf_union = false;
-    land.addSetToTypes(shell_shell);
   }
 
   if (std::find(sets.begin(), sets.end(), "shell-sponge") != sets.end())
@@ -126,7 +123,6 @@ int main()
     shell_sponge.addLeafBall(0,1,2,4);
     shell_sponge.addLeafBall(2,3,4,5);
     shell_sponge.leaf_union = false;
-    land.addSetToTypes(shell_sponge);
   }
 
   if (std::find(sets.begin(), sets.end(), "cube_sponge-sponge") != sets.end())
@@ -145,12 +141,12 @@ int main()
     cube_tree_tree.balls[1].initPlane(Eigen::Vector3d(1,0,0),  0.0, true);
     cube_tree_tree.balls[2].initPlane(Eigen::Vector3d(0,1,0),  0.0, true);
     cube_tree_tree.balls[3].initPlane(Eigen::Vector3d(0,0,1),  0.0, true);
-    land.addSetToTypes(cube_tree_tree);
   }
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND
   // the inversive-distance matching constraints imposed by dest_set links.
+  land.addSetsToTypes();
   land.applyConnectivity();
   land.verifyConnectivity();
   land.printConnectivity();

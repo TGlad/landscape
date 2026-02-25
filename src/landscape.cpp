@@ -548,7 +548,7 @@ void Landscape::outputCode(const std::string &filename) const
         << "    vec3 w = v - MOBIUS_C[mi];\n"
         << "    scale *= MOBIUS_S[mi] / dot(w, w);\n"
         << "    return MOBIUS_T[mi] + (MOBIUS_S[mi] / dot(w, w)) * (MOBIUS_R[mi] * w);\n"
-        << "}\n\n";
+        << "}\n";
   }
 
   std::cout << "Wrote " << filename << "\n";

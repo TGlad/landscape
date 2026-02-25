@@ -190,6 +190,13 @@ struct Landscape
       }
     }
   }
+  void addSetsToTypes()
+  {
+    for (auto &set: sets)
+    {
+      addSetToTypes(set);
+    }
+  }
 
   struct Type
   {
