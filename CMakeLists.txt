@@ -12,8 +12,12 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 include_directories(include)
 
 add_executable(hello
+    src/ball.cpp
     src/main.cpp
     src/landscape.cpp
+    src/outputcode.cpp
+    src/set.cpp
+    src/type.cpp
 )
 
 target_link_libraries(hello Eigen3::Eigen)
