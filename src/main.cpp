@@ -65,6 +65,23 @@ int main()
     set.leaf_union = true;
   };
 
+  auto addClusterSponge = [&]()
+  {
+    land.sets.push_back(Landscape::Set("cluster-sponge", 5));
+    Landscape::Set &set = land.sets.back();
+    for (int i = 0; i<5; i++)
+      for (int j = i+1; j<5; j++)
+        set.conn(i, j) = 3;
+    for (int i = 1; i<5; i++)
+      set.conn(0,i) = 4;
+    set.balls[0].initSphere(Eigen::Vector3d(0,0,0.6), 0.8);
+    set.balls[1].initSphere(Eigen::Vector3d(0.6,0,-0.3), 0.8);
+    set.balls[2].initSphere(Eigen::Vector3d(-0.3,-0.6,-0.3), 0.8);
+    set.balls[3].initSphere(Eigen::Vector3d(-0.3,0.6,-0.3), 0.8);
+    set.balls[4].initSphere(Eigen::Vector3d(0,0,0), 0.2);
+    set.addLeafBall(1,2,3,4);
+  };
+
   auto addTreeTree = [&]()
   {
     land.sets.push_back(Landscape::Set("tree-tree", 6));
@@ -148,6 +165,33 @@ int main()
     set.leaf_union = false;
   };
 
+  auto addSpongeSponge = [&]()
+  {
+    land.sets.push_back(Landscape::Set("sponge-sponge", 6));
+    Landscape::Set &set = land.sets.back();
+    // octahedron based
+    int last_i = 4;
+    for (int i = 1; i<=4; i++)
+    {
+      set.conn(0, i) = 3;
+      set.conn(5, i) = 3;
+      // around the meridian
+      set.conn(last_i, i) = 3;
+      last_i = i;
+    }
+    set.conn(0,5) = 4; // make it a sponge
+    // now come up with some approximate locations
+    set.balls[0].initSphere(Eigen::Vector3d(-0.5,0,1), 1.1);
+    set.balls[1].initSphere(Eigen::Vector3d(0,-0.05,0), 0.06);
+    set.balls[2].initSphere(Eigen::Vector3d(0, 0.05,0), 0.06);
+    set.balls[3].initSphere(Eigen::Vector3d(0.27,-0.25,0), 0.3);
+    set.balls[4].initSphere(Eigen::Vector3d(0.27,0.25,0), 0.3);
+    set.balls[5].initSphere(Eigen::Vector3d(-0.5,0,-1), 1.1);
+    set.addLeafBall(0,1,2,4);
+    set.addLeafBall(2,3,4,5);
+    set.leaf_union = true;
+  };
+
   auto addShellSponge = [&]()
   {
     land.sets.push_back(Landscape::Set("shell-sponge", 6));
@@ -197,7 +241,9 @@ int main()
   addVoidTree();
   addVoidSponge();
   addClusterTree();
+  addClusterSponge();
   addTreeTree();
+  addSpongeSponge();
   addShellSponge();
   addShellShell();
   addCubeSpongeSponge();
