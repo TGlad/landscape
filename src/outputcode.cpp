@@ -75,6 +75,10 @@ void Landscape::outputCode(const std::string &filename) const
   for (int si = 0; si < num_sets; si++)
     out << (int)sets[si].balls.size() << (si < num_sets - 1 ? ", " : "");
   out << ");\n";
+  out << "const vec4 SET_COLOUR[" << num_sets << "] = vec4[" << num_sets << "](";
+  for (int si = 0; si < num_sets; si++)
+    out << "vec4(" << sets[si].colour[0] << ", " << sets[si].colour[1] << ", " << sets[si].colour[2] << ", " << sets[si].colour[3] << ")" << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
   out << "const int LEAF_OFFSET[" << num_sets << "] = int[" << num_sets << "](";
   for (int si = 0; si < num_sets; si++)
     out << leaf_offsets[si] << (si < num_sets - 1 ? ", " : "");

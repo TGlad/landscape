@@ -4,19 +4,15 @@
 
 int main()
 {
-  // OK let's make some sets manually to start off with.
   Landscape land;
-  std::vector<std::string> sets = 
-  {
-    "tree-tree", "shell-tree", 
-    "shell-shell", "shell-shell", 
-    "cube_sponge-sponge"
-  };
 
-  if (std::find(sets.begin(), sets.end(), "tree-tree") != sets.end())
+  // define some sets to make:
+
+  auto addTreeTree = [&]()
   {
     land.sets.push_back(Landscape::Set("tree-tree", 6));
     Landscape::Set &tree_tree = land.sets.back();
+    tree_tree.colour = Eigen::Vector4d(0,1,0,1);
     // octahedron of order 3, so 0=top, 1,2,3,4 is mid and 5 is base
     int last_i = 4;
     for (int i = 1; i<=4; i++)
@@ -41,10 +37,9 @@ int main()
     tree_tree.addLeafBall(0,1,2,3);
     tree_tree.addLeafBall(2,3,4,5);
     tree_tree.leaf_union = true;
-  }
+  };
 
-
-  if (std::find(sets.begin(), sets.end(), "shell-tree") != sets.end())
+  auto addShellTree = [&]()
   {
     land.sets.push_back(Landscape::Set("shell-tree", 6));
     Landscape::Set &shell_tree = land.sets.back();
@@ -67,12 +62,13 @@ int main()
     shell_tree.balls[3].initSphere(Eigen::Vector3d(-1,0,0), 1.0);
     shell_tree.balls[4].initSphere(Eigen::Vector3d(0.3,0,0.3), 0.125);
     shell_tree.balls[5].initSphere(Eigen::Vector3d(0,0,-1), 1.0);
-  }
+  };
 
-  if (std::find(sets.begin(), sets.end(), "shell-shell") != sets.end())
+  auto addShellShell = [&]()
   {
     land.sets.push_back(Landscape::Set("shell-shell", 6));
     Landscape::Set &shell_shell = land.sets.back();
+    shell_shell.colour = Eigen::Vector4d(1,0,0,1);
     // octahedron of order 3, so 0=top, 1,2,3,4 is mid and 5 is base
     int last_i = 4;
     for (int i = 1; i<=4; i++)
@@ -96,9 +92,9 @@ int main()
     shell_shell.addLeafBall(0,1,2,4);
     shell_shell.addLeafBall(2,3,4,5);
     shell_shell.leaf_union = false;
-  }
+  };
 
-  if (std::find(sets.begin(), sets.end(), "shell-sponge") != sets.end())
+  auto addShellSponge = [&]()
   {
     land.sets.push_back(Landscape::Set("shell-sponge", 6));
     Landscape::Set &shell_sponge = land.sets.back();
@@ -123,9 +119,9 @@ int main()
     shell_sponge.addLeafBall(0,1,2,4);
     shell_sponge.addLeafBall(2,3,4,5);
     shell_sponge.leaf_union = false;
-  }
+  };
 
-  if (std::find(sets.begin(), sets.end(), "cube_sponge-sponge") != sets.end())
+  auto addCubeSpongeSponge = [&]()
   {
     land.sets.push_back(Landscape::Set("cube_sponge-sponge", 4));
     Landscape::Set &cube_tree_tree = land.sets.back();
@@ -141,7 +137,14 @@ int main()
     cube_tree_tree.balls[1].initPlane(Eigen::Vector3d(1,0,0),  0.0, true);
     cube_tree_tree.balls[2].initPlane(Eigen::Vector3d(0,1,0),  0.0, true);
     cube_tree_tree.balls[3].initPlane(Eigen::Vector3d(0,0,1),  0.0, true);
-  }
+  };
+
+  // decide which shapes to add:
+  addTreeTree();
+  addShellSponge();
+  addShellShell();
+  addCubeSpongeSponge();
+
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND

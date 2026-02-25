@@ -13,6 +13,7 @@ struct Landscape
   {
     Set(const std::string &name, int num_balls);
     std::string name;
+    Eigen::Vector4d colour {Eigen::Vector4d(1,1,1,1)};
     struct Ball // supports oriented spheres and oriented planes
     {
       Eigen::Vector3d dir;
