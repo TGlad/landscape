@@ -91,6 +91,22 @@ int main()
   shell_sponge.balls[0].dest_set = "";
   land.addSetToTypes(shell_sponge);
 
+  land.sets.push_back(Landscape::Set("cube_tree-tree", 4));
+  Landscape::Set &cube_tree_tree = land.sets.back();
+ // octahedron of order 3, so 0=top, 1,2,3,4 is mid and 5 is base
+  last_i = 3;
+  for (int i = 1; i<=3; i++)
+  {
+    cube_tree_tree.conn(0, i) = 6;
+    cube_tree_tree.conn(last_i, i) = 2;
+    last_i = i;
+  }
+  cube_tree_tree.balls[0].initSphere(Eigen::Vector3d(1,1,1), 1.2);
+  cube_tree_tree.balls[1].initPlane(Eigen::Vector3d(1,0,0),  0.0, true);
+  cube_tree_tree.balls[2].initPlane(Eigen::Vector3d(0,1,0),  0.0, true);
+  cube_tree_tree.balls[3].initPlane(Eigen::Vector3d(0,0,1),  0.0, true);
+  land.addSetToTypes(cube_tree_tree);
+
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND
   // the inversive-distance matching constraints imposed by dest_set links.
@@ -101,6 +117,7 @@ int main()
   shell_tree.verifyConnectivity();
   shell_shell.verifyConnectivity();
   shell_sponge.verifyConnectivity();
+  cube_tree_tree.verifyConnectivity();
 
   tree_tree.addLeafBall(0,1,2,3);
   tree_tree.addLeafBall(2,3,4,5);
@@ -114,6 +131,8 @@ int main()
   shell_sponge.addLeafBall(2,3,4,5);
   shell_sponge.leaf_union = false;
 
+//  cube_tree_tree.findOrthogonalSphere(0,1,2,3);
+ // cube_tree_tree.addLeafBall(0,1,2,3); // no leaf ball as the spheres don't overlap in 3s. We should check this automatically
   land.matchUpDestinationBalls();
 
   land.outputCode();

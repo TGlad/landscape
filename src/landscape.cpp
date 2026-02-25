@@ -6,6 +6,56 @@
 
 static const double pi = std::acos(-1.0);
 
+#include <iostream>
+#include <vector>
+#include <Eigen/Dense>
+
+void Landscape::Set::findOrthogonalSphere(int I, int J, int K, int L)
+{
+  Eigen::Matrix4d A;
+  Eigen::Vector4d b;
+
+  // We want a point P such that Power_0(P) = Power_1(P) = Power_2(P) = Power_3(P) = R^2
+  // This forms a linear system in [Px, Py, Pz, -R^2]
+  const std::array<int,4> idx = {I, J, K, L};
+  for (int i = 0; i < 4; ++i) 
+  {
+    double k = balls[idx[i]].curvature;
+    Eigen::Vector3d n = balls[idx[i]].dir;
+    double d = balls[idx[i]].dist;
+
+    double coeff_P = -2.0 * (k * d + 1.0);
+    A(i, 0) = n.x() * coeff_P;
+    A(i, 1) = n.y() * coeff_P;
+    A(i, 2) = n.z() * coeff_P;
+    A(i, 3) = k; // Coefficient for X
+
+    b(i) = -(k * d * d + 2.0 * d);
+}
+
+  // Solve for [Px, Py, Pz, X]
+  Eigen::Vector4d sol = A.colPivHouseholderQr().solve(b);
+  Eigen::Vector3d centre = sol.head<3>();
+  double X = sol(3);
+  
+  // Since X = P^2 - R^2, then R^2 = P^2 - X
+  double r_sq = centre.squaredNorm() - X;
+
+  if (r_sq < 0.0)
+    std::cerr << "Warning: orthogonal sphere is inside another sphere" << std::endl;
+
+  float rad = std::sqrt(std::abs(r_sq));
+
+  Ball leaf;
+  leaf.parent_set = this;
+  leaf.dir        = centre.normalized();
+  leaf.dist       = centre.norm() - rad;
+  leaf.curvature  = 1.0 / rad;
+  leaf_balls.push_back(leaf);
+}
+
+
+
 void Landscape::Set::addLeafBall(int i, int j, int k, int l)
 {
   // A sphere X orthogonal to sphere A satisfies |Cx-Ca|² = rx²+ra².
@@ -20,7 +70,7 @@ void Landscape::Set::addLeafBall(int i, int j, int k, int l)
   for (int row = 0; row < 4; row++)
   {
     const Ball &b = balls[idx[row]];
-    if (b.curvature != 0.0)
+    if (std::abs(b.curvature) > 1e-6)
     {
       double r = 1.0 / b.curvature;
       Eigen::Vector3d C = b.dir * (b.dist + r);
@@ -1185,10 +1235,10 @@ void Landscape::applyConnectivity(int iterations)
       double step = -error / (g2 + damping);
       bi.dir       += step * g_dir_i;  bi.dir.normalize();
       bi.dist      += step * g_dist_i;
-      bi.curvature  = std::max(1e-6, bi.curvature + step * g_curv_i);
+      if (bi.curvature != 0.0) bi.curvature = std::max(1e-6, bi.curvature + step * g_curv_i);
       bj.dir       += step * g_dir_j;  bj.dir.normalize();
       bj.dist      += step * g_dist_j;
-      bj.curvature  = std::max(1e-6, bj.curvature + step * g_curv_j);
+      if (bj.curvature != 0.0) bj.curvature = std::max(1e-6, bj.curvature + step * g_curv_j);
     }
     // ── (B) Möbius transform residual constraints ─────────────────────────
     //
@@ -1264,10 +1314,10 @@ void Landscape::applyConnectivity(int iterations)
 
       sA.dir += step * gDirS;  sA.dir.normalize();
       sA.dist += step * gDistS;
-      sA.curvature = std::max(1e-6, sA.curvature + step * gCurvS);
+      if (sA.curvature != 0.0) sA.curvature = std::max(1e-6, sA.curvature + step * gCurvS);
       dA.dir += step * gDirD;  dA.dir.normalize();
       dA.dist += step * gDistD;
-      dA.curvature = std::max(1e-6, dA.curvature + step * gCurvD);
+      if (dA.curvature != 0.0) dA.curvature = std::max(1e-6, dA.curvature + step * gCurvD);
     }
   }
 }
@@ -1281,7 +1331,7 @@ void Landscape::matchUpDestinationBalls()
       if (ball.dest_set == "") // standard recursion
       {
         ball.dest_ball = &ball;
-        computeMobiusTransform(ball, ball);
+        // computeMobiusTransform(ball, ball); // no need to compute as we won't be using the transform if no dest
         continue;
       }
       const Type *type = ball.type;

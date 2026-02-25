@@ -21,17 +21,19 @@ struct Landscape
       int dest_ball_id {-1}; // -1 will pick the first in the set that works
       bool is_fixed {false};
 
-      void initSphere(const Eigen::Vector3d &p, double rad)
+      void initSphere(const Eigen::Vector3d &p, double rad, bool fix = false)
       {
         dir = p.normalized();
         dist = p.norm() - rad;
         curvature = 1.0/rad;
+        is_fixed = fix;
       }
-      void initPlane(const Eigen::Vector3d &normal, double d)
+      void initPlane(const Eigen::Vector3d &normal, double d, bool fix = false)
       {
         dir = normal.normalized();
         dist = d;
         curvature = 0.0;
+        is_fixed = fix;
       }
 
       // auto-set
@@ -40,6 +42,7 @@ struct Landscape
       Ball *dest_ball {nullptr};
       std::vector<int> type_to_set; // type_to_set[canonical_type_idx] = set ball index
       std::vector<int> set_to_type; // set_to_type[set_ball_idx]  = canonical_type_idx (-1 if not neighbour) 
+      
 
       struct Mobius
       {
@@ -109,6 +112,7 @@ struct Landscape
     bool verifyConnectivity(double tol = 1e-4) const;
     void addLeafBall(int i, int j, int k, int l);
     void addLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
+    void findOrthogonalSphere(int I, int J, int K, int L);
 
     Set(const std::string &name, int num_balls) : name(name) 
     { 
