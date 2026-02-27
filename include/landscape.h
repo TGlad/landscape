@@ -52,6 +52,7 @@ struct Landscape
 
     Adj conn; // connectivity. -1=kissing, 0 is disconnected
     bool leaf_union; // union if true, else intersection
+    bool render_volume_only {false};
 
     void addLeafBall(int i, int j, int k, int l);
     void addLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
@@ -82,7 +83,7 @@ struct Landscape
   void printConnectivity(bool show_valid_destinations = false); // called after all addSetToTypes() are called
   void applyConnectivity(int iterations = 4000);
   void verifyConnectivity();  
-  void calculateLeafBalls();
+  void calculateLeaves();
   void addSetsToTypes();  
   void addSetToTypes(Set &set);
   void matchUpDestinationBalls();

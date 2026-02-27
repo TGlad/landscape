@@ -52,7 +52,7 @@ void Landscape::verifyConnectivity()
     set.verifyConnectivity();
 }
 
-void Landscape::calculateLeafBalls()
+void Landscape::calculateLeaves()
 {
   for (auto &set: sets)
   {
@@ -617,6 +617,12 @@ void Landscape::applyConnectivity(int iterations)
 
       if (bi.curvature != 0.0 && bj.curvature != 0.0)
       {
+        // Solve in (centre, radius) space so the step is translation-invariant.
+        // In the (dir, dist, κ) parameterisation g_dir scales as |C| = dist+r,
+        // so when balls are far from the origin g² ≈ |C|² and the radial/
+        // curvature DOFs are under-stepped by a factor of |C|² — breaking the
+        // invariance that constraining a set of spheres should not depend on
+        // where the set sits in space.
         double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
         Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
         Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
@@ -624,19 +630,19 @@ void Landscape::applyConnectivity(int iterations)
         double d = Delta.norm();
         if (d < 1e-12) continue;
 
+        double err = 0.0;
+        Eigen::Vector3d gCi = Eigen::Vector3d::Zero(), gCj = Eigen::Vector3d::Zero();
+        double gri = 0.0, grj = 0.0;
+
         if (order <= 0)
         {
           double targ_d = ri + rj + (order == 0 ? k : 0.0);
-          error = d - targ_d;
-          if (order == 0 && error >= 0.0) continue;
-          Eigen::Vector3d dddCi =  Delta / d;
-          Eigen::Vector3d dddCj = -Delta / d;
-          g_dist_i = dddCi.dot(bi.dir);
-          g_dist_j = dddCj.dot(bj.dir);
-          g_curv_i = (dddCi.dot(bi.dir) - 1.0) * (-1.0 / (bi.curvature * bi.curvature));
-          g_curv_j = (dddCj.dot(bj.dir) - 1.0) * (-1.0 / (bj.curvature * bj.curvature));
-          g_dir_i = (bi.dist + ri) * (dddCi - dddCi.dot(bi.dir) * bi.dir);
-          g_dir_j = (bj.dist + rj) * (dddCj - dddCj.dot(bj.dir) * bj.dir);
+          err = d - targ_d;
+          if (order == 0 && err >= 0.0) continue;
+          gCi =  Delta / d;   // d(d)/dCi
+          gCj = -Delta / d;
+          gri = -1.0;         // d(ri+rj)/dri
+          grj = -1.0;
         }
         else
         {
@@ -644,47 +650,51 @@ void Landscape::applyConnectivity(int iterations)
           double cos_theta = (d2 - ri*ri - rj*rj) / (2.0 * ri * rj);
           if (cos_theta >= 1.0)
           {
-            error = d - (ri + rj);
-            Eigen::Vector3d dddCi =  Delta / d;
-            Eigen::Vector3d dddCj = -Delta / d;
-            g_dist_i = dddCi.dot(bi.dir);
-            g_dist_j = dddCj.dot(bj.dir);
-            g_curv_i = (dddCi.dot(bi.dir) - 1.0) * (-1.0 / (bi.curvature * bi.curvature));
-            g_curv_j = (dddCj.dot(bj.dir) - 1.0) * (-1.0 / (bj.curvature * bj.curvature));
-            g_dir_i = (bi.dist + ri) * (dddCi - dddCi.dot(bi.dir) * bi.dir);
-            g_dir_j = (bj.dist + rj) * (dddCj - dddCj.dot(bj.dir) * bj.dir);
+            // Spheres too far apart to intersect — rescue toward tangency.
+            err = d - (ri + rj);
+            gCi =  Delta / d;
+            gCj = -Delta / d;
+            gri = -1.0;
+            grj = -1.0;
           }
           else if (cos_theta <= -1.0)
           {
-            error = d - (ri + rj);
-            Eigen::Vector3d dddCi =  Delta / d;
-            Eigen::Vector3d dddCj = -Delta / d;
-            g_dist_i = dddCi.dot(bi.dir);
-            g_dist_j = dddCj.dot(bj.dir);
-            g_curv_i = (dddCi.dot(bi.dir) - 1.0) * (-1.0 / (bi.curvature * bi.curvature));
-            g_curv_j = (dddCj.dot(bj.dir) - 1.0) * (-1.0 / (bj.curvature * bj.curvature));
-            g_dir_i = (bi.dist + ri) * (dddCi - dddCi.dot(bi.dir) * bi.dir);
-            g_dir_j = (bj.dist + rj) * (dddCj - dddCj.dot(bj.dir) * bj.dir);
+            // One sphere contains the other — rescue toward tangency.
+            err = d - (ri + rj);
+            gCi =  Delta / d;
+            gCj = -Delta / d;
+            gri = -1.0;
+            grj = -1.0;
           }
           else
           {
             double theta = std::acos(cos_theta);
             double sin_theta = std::sin(theta);
             if (std::abs(sin_theta) < 1e-10) continue;
-            error = pi / (double)order - theta;
+            err = pi / (double)order - theta;
             double inv_sin = 1.0 / sin_theta;
-            Eigen::Vector3d dfdCi =  Delta / (ri * rj);
-            Eigen::Vector3d dfdCj = -dfdCi;
-            double dfdri = -(ri*ri + d2 - rj*rj) / (2.0 * ri*ri * rj);
-            double dfdrj = -(rj*rj + d2 - ri*ri) / (2.0 * rj*rj * ri);
-            g_dist_i = inv_sin * dfdCi.dot(bi.dir);
-            g_dist_j = inv_sin * dfdCj.dot(bj.dir);
-            g_curv_i = inv_sin * (dfdri + dfdCi.dot(bi.dir)) * (-1.0 / (bi.curvature * bi.curvature));
-            g_curv_j = inv_sin * (dfdrj + dfdCj.dot(bj.dir)) * (-1.0 / (bj.curvature * bj.curvature));
-            g_dir_i = inv_sin * (bi.dist + ri) * (dfdCi - dfdCi.dot(bi.dir) * bi.dir);
-            g_dir_j = inv_sin * (bj.dist + rj) * (dfdCj - dfdCj.dot(bj.dir) * bj.dir);
+            // d(cos_theta)/dCi = Delta/(ri*rj)  [from d(d²)/dCi = 2Δ]
+            gCi =  inv_sin * Delta / (ri * rj);
+            gCj = -inv_sin * Delta / (ri * rj);
+            // d(cos_theta)/dri = -(ri²+d²-rj²)/(2ri²rj)
+            gri = inv_sin * (-(ri*ri + d2 - rj*rj) / (2.0 * ri*ri * rj));
+            grj = inv_sin * (-(rj*rj + d2 - ri*ri) / (2.0 * rj*rj * ri));
           }
         }
+
+        if (bi.is_fixed) { gCi = Eigen::Vector3d::Zero(); gri = 0.0; }
+        if (bj.is_fixed) { gCj = Eigen::Vector3d::Zero(); grj = 0.0; }
+
+        double g2 = gCi.squaredNorm() + gri*gri + gCj.squaredNorm() + grj*grj;
+        double step = -err / (g2 + damping);
+
+        Ci += step * gCi;  ri = std::max(1e-6, ri + step * gri);
+        Cj += step * gCj;  rj = std::max(1e-6, rj + step * grj);
+
+        // Convert back to (dir, dist, κ).
+        bi.dir = Ci.normalized();  bi.dist = Ci.norm() - ri;  bi.curvature = 1.0 / ri;
+        bj.dir = Cj.normalized();  bj.dist = Cj.norm() - rj;  bj.curvature = 1.0 / rj;
+        continue; // step already applied; skip the (dir,dist,κ) update below
       }
       else if (bi.curvature == 0.0 && bj.curvature == 0.0)
       {
@@ -700,6 +710,16 @@ void Landscape::applyConnectivity(int iterations)
       }
       else
       {
+        // Sphere-plane: solve the sphere in (C, r) space (translation-invariant),
+        // and pre-scale the plane-normal gradient by 1/|C_tang|² to remove the
+        // |C| lever-arm that would otherwise dominate g² when the sphere is far
+        // from the origin.  Each DOF then contributes O(1) to g².
+        //
+        // Constraint: f = n̂·C − d − r·cos_targ = 0
+        //   gC      = n̂                              O(1)
+        //   gr      = −cos_targ                       O(1)
+        //   g_n_raw = C_tang = C − (n̂·C)n̂            O(|C|)  → rescaled below
+        //   gd      = −1                              O(1)
         const bool i_is_sphere = (bi.curvature != 0.0);
         Set::Ball &sphere = i_is_sphere ? bi : bj;
         Set::Ball &plane  = i_is_sphere ? bj : bi;
@@ -707,24 +727,33 @@ void Landscape::applyConnectivity(int iterations)
         Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
         double signed_dist = plane.dir.dot(C) - plane.dist;
         double cos_targ = (order <= 0) ? 1.0 : std::cos(pi / (double)order);
-        double targ_dist = r * cos_targ + (order == 0 ? k : 0.0);
-        error = signed_dist - targ_dist;
+        error = signed_dist - (r * cos_targ + (order == 0 ? k : 0.0));
         if (order == 0 && error >= 0.0) continue;
-        double g_dist_s = plane.dir.dot(sphere.dir);
-        double g_curv_s = (plane.dir.dot(sphere.dir) - cos_targ) * (-1.0 / (sphere.curvature * sphere.curvature));
-        Eigen::Vector3d g_dir_s = (sphere.dist + r) * (plane.dir - plane.dir.dot(sphere.dir) * sphere.dir);
-        double g_dist_p = -1.0;
-        Eigen::Vector3d g_dir_p = C - plane.dir.dot(C) * plane.dir;
-        if (i_is_sphere)
-        {
-          g_dist_i = g_dist_s; g_curv_i = g_curv_s; g_dir_i = g_dir_s;
-          g_dist_j = g_dist_p; g_curv_j = 0.0;      g_dir_j = g_dir_p;
-        }
-        else
-        {
-          g_dist_j = g_dist_s; g_curv_j = g_curv_s; g_dir_j = g_dir_s;
-          g_dist_i = g_dist_p; g_curv_i = 0.0;      g_dir_i = g_dir_p;
-        }
+
+        // Sphere in (C, r) space.
+        Eigen::Vector3d gC = plane.dir;       // d(n̂·C)/dC = n̂
+        double          gr = -cos_targ;        // d(r·cos_targ)/dr
+
+        // Plane normal: tangential gradient rescaled to O(1).
+        Eigen::Vector3d C_tang = C - plane.dir.dot(C) * plane.dir;
+        double C_tang2 = C_tang.squaredNorm();
+        // Scaled gradient: produces a unit angular step whose lever arm is |C_tang|.
+        // g_n_scaled·Δn̂ contributes the same to Δf as gC·ΔC when |ΔC|=|Δn̂·lever|.
+        Eigen::Vector3d g_n_scaled = (C_tang2 > 1e-20) ? C_tang / C_tang2 : C_tang;
+        double gd = -1.0;
+
+        if (sphere.is_fixed) { gC = Eigen::Vector3d::Zero(); gr = 0.0; }
+        if (plane.is_fixed)  { g_n_scaled = Eigen::Vector3d::Zero(); gd = 0.0; }
+
+        double g2 = gC.squaredNorm() + gr*gr + g_n_scaled.squaredNorm() + gd*gd;
+        double step = -error / (g2 + damping);
+
+        C += step * gC;  r = std::max(1e-6, r + step * gr);
+        sphere.dir = C.normalized();  sphere.dist = C.norm() - r;  sphere.curvature = 1.0 / r;
+
+        plane.dir  = (plane.dir + step * g_n_scaled).normalized();
+        plane.dist += step * gd;
+        continue; // step already applied
       }
 
       // Fixed balls contribute nothing to the gradient and receive no update.

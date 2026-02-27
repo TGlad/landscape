@@ -9,7 +9,7 @@
     }
     set.balls[0].initSphere(Eigen::Vector3d(0,0,1), 0.8);
     set.balls[1].initSphere(Eigen::Vector3d(1,0,0), 0.8);
-    set.balls[2].initSphere(Eigen::Vector3d(-1,0,0), 0.8);
+    set.balls[2].initSphere(Eigen::Vector3d(1,0,0), 0.8);
     set.balls[3].initSphere(Eigen::Vector3d(0,0,0), 0.2);
     set.balls[4].initSphere(Eigen::Vector3d(0,1,0), 0.8);
     set.balls[5].initSphere(Eigen::Vector3d(0,-1,0), 0.8);
@@ -70,6 +70,7 @@
     set.balls[3].initSphere(Eigen::Vector3d(-0.3,0.6,-0.3), 0.8);
     set.balls[4].initSphere(Eigen::Vector3d(0,0,0), 0.2);
     set.addLeafBall(1,2,3,4);
+    set.render_volume_only = true; // optional?
   };
 
   auto treeTree = [&]()
@@ -98,6 +99,7 @@
     set.addLeafBall(0,1,2,3);
     set.addLeafBall(2,3,4,5);
     set.leaf_union = true;
+    set.render_volume_only = true; 
   };
 
   auto shellTree = [&]()
@@ -153,6 +155,7 @@
     set.addLeafBall(0,1,2,4);
     set.addLeafBall(2,3,4,5);
     set.leaf_union = false;
+    set.render_volume_only = true; 
   };
 
   auto spongeSponge = [&]()

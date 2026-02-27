@@ -27,7 +27,7 @@ int main()
   land.applyConnectivity();
   land.verifyConnectivity();
   land.printConnectivity(true);
-  land.calculateLeafBalls();
+  land.calculateLeaves();
   land.matchUpDestinationBalls();
   land.outputCode();
   return 0;

@@ -79,6 +79,10 @@ void Landscape::outputCode(const std::string &filename) const
   for (int si = 0; si < num_sets; si++)
     out << "vec4(" << sets[si].colour[0] << ", " << sets[si].colour[1] << ", " << sets[si].colour[2] << ", " << sets[si].colour[3] << ")" << (si < num_sets - 1 ? ", " : "");
   out << ");\n";
+  out << "const bool VOLUME_ONLY[" << num_sets << "] = bool[" << num_sets << "](";
+  for (int si = 0; si < num_sets; si++)
+    out << (sets[si].render_volume_only ? "true" : "false") << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
   out << "const int LEAF_OFFSET[" << num_sets << "] = int[" << num_sets << "](";
   for (int si = 0; si < num_sets; si++)
     out << leaf_offsets[si] << (si < num_sets - 1 ? ", " : "");
@@ -226,18 +230,21 @@ void Landscape::outputCode(const std::string &filename) const
     out << ");\n\n";
 
     // applyMobius() GLSL function
-    out << "// Apply the Möbius transform for Möbius index mi to point v.\n"
+    out << "// Apply the Möbius transform for Möbius index mi to sphere v,rad.\n"
         << "//   Similarity (MOBIUS_SIM=true):  v' = T + s * R * v\n"
         << "//   Inversion  (MOBIUS_SIM=false): v' = T + (s/dot(w,w)) * R * w,  w = v - C\n"
-        << "vec3 applyMobius(int mi, vec3 v, inout float scale) {\n"
+        << "vec3 applyMobius(int mi, vec3 v, inout float rad) {\n"
         << "    if (MOBIUS_SIM[mi])\n"
         << "    {\n"
-        << "        scale *= MOBIUS_S[mi];\n"
+        << "        rad *= MOBIUS_S[mi];\n"
         << "        return MOBIUS_T[mi] + MOBIUS_S[mi] * (MOBIUS_R[mi] * v);\n"
         << "    }\n"
         << "    vec3 w = v - MOBIUS_C[mi];\n"
-        << "    scale *= MOBIUS_S[mi] / dot(w, w);\n"
-        << "    return MOBIUS_T[mi] + (MOBIUS_S[mi] / dot(w, w)) * (MOBIUS_R[mi] * w);\n"
+        << "    float len = length(w);\n"
+        << "    float lmin = MOBIUS_S[mi] / (len + rad);\n"
+        << "    float lmax = MOBIUS_S[mi] / (len - rad);\n"
+        << "    rad = (lmax - lmin)/2.0;\n"
+        << "    return MOBIUS_T[mi] + ((lmax + lmin)/(2.0*len)) * (MOBIUS_R[mi] * w);\n"
         << "}\n";
   }
 
