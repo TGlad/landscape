@@ -700,13 +700,18 @@ void Landscape::applyConnectivity(int iterations)
       {
         if (order <= 0) continue;
         double dot = bi.dir.dot(bj.dir);
-        double theta = std::acos(std::clamp(dot, -1.0, 1.0));
+        // Planes are unoriented: opposing normals (n, -n) → dihedral angle 0,
+        // parallel normals (n, n) → dihedral angle pi. Use -dot so that
+        // acos(-dot) measures the dihedral angle, matching verifyConnectivity.
+        double theta = std::acos(std::clamp(-dot, -1.0, 1.0));
         double sin_theta = std::sin(theta);
         if (std::abs(sin_theta) < 1e-10) continue;
         error = pi / (double)order - theta;
+        // d(acos(-dot))/d(ni) = +(1/sin_theta)*(nj - dot*ni), so
+        // d(error)/d(ni) = -(1/sin_theta)*(nj - dot*ni).
         double inv_sin = 1.0 / sin_theta;
-        g_dir_i = inv_sin * (bj.dir - dot * bi.dir);
-        g_dir_j = inv_sin * (bi.dir - dot * bj.dir);
+        g_dir_i = -inv_sin * (bj.dir - dot * bi.dir);
+        g_dir_j = -inv_sin * (bi.dir - dot * bj.dir);
       }
       else
       {

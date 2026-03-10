@@ -159,6 +159,8 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
   Ball leaf;
   leaf.parent_set = this;
   leaf.dir        = Cx.normalized();
+  if (leaf.dir == Eigen::Vector3d(0,0,0))
+    leaf.dir[2] = 1.0;
   leaf.dist       = Cx.norm() - rx;
   leaf.curvature  = 1.0 / rx;
   leaf_balls.push_back(leaf);
@@ -341,7 +343,9 @@ bool Landscape::Set::verifyConnectivity(double tol) const
       else if (bi.curvature == 0.0 && bj.curvature == 0.0)
       {
         target = pi / (double)order;
-        actual = std::acos(std::clamp(bi.dir.dot(bj.dir), -1.0, 1.0));
+        // Planes are treated as unoriented: opposing normals (n, -n) meet at angle 0,
+        // parallel normals (n, n) meet at angle pi. Hence negate the dot product.
+        actual = std::acos(std::clamp(-bi.dir.dot(bj.dir), -1.0, 1.0));
       }
       else
       {

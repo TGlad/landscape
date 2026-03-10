@@ -19,6 +19,8 @@ int main()
   // misc
   cubeSpongeSponge();
 
+  #include "items.hpp" // define some simple sets
+  sphere();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND
