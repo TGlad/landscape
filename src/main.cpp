@@ -20,7 +20,8 @@ int main()
   cubeSpongeSponge();
 
   #include "items.hpp" // define some simple sets
-  sphere();
+  cube_sphere();
+  cube_tree();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND
