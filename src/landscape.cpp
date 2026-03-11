@@ -98,6 +98,23 @@ static Vec5 conformal_sphere(const Eigen::Vector3d &c, double r)
   return v / r; // unit spacelike: v·η·v = 1
 }
 
+static Vec5 conformal_plane(const Eigen::Vector3d &n, double d)
+{
+  Vec5 v;
+  v << n.x(), n.y(), n.z(), -d, d;
+  return v; // unit spacelike when |n|=1: v·η·v = 1
+}
+
+static Vec5 conformal_ball(const Landscape::Set::Ball &b)
+{
+  if (std::abs(b.curvature) < 1e-15)
+    return conformal_plane(b.dir, b.dist);
+
+  double r = 1.0 / b.curvature;
+  Eigen::Vector3d c = b.dir * (b.dist + r);
+  return conformal_sphere(c, r);
+}
+
 // Decompose an O(4,1) matrix M into the GLSL-friendly T,C,s,R form stored in
 // Landscape::Set::Ball::Mobius.
 //
@@ -225,14 +242,8 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   {
     const auto &sb = src_set->balls[src.type_to_set[i]];
     const auto &db = dst_set->balls[dst.type_to_set[i]];
-    if (sb.curvature == 0.0 || db.curvature == 0.0)
-    {
-      std::cerr << tag << " SKIP: plane not supported\n";
-      return false;
-    }
-    double rs = 1.0/sb.curvature, rd = 1.0/db.curvature;
-    A.col(i) = conformal_sphere(sb.dir*(sb.dist+rs), rs);
-    C.col(i) = conformal_sphere(db.dir*(db.dist+rd), rd);
+    A.col(i) = conformal_ball(sb);
+    C.col(i) = conformal_ball(db);
   }
 
   // Gram matrix compatibility check.  Print a warning for mismatches but
