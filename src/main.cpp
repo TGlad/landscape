@@ -21,7 +21,10 @@ int main()
 
   #include "items.hpp" // define some simple sets
   cube_sphere();
+  cube_sphere2();
   cube_tree();
+  ball0();
+  ball1();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND

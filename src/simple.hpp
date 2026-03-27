@@ -150,8 +150,8 @@
     set.balls[4].initSphere(Eigen::Vector3d(0,-1,0), 1.0);
     set.balls[5].initSphere(Eigen::Vector3d(0,0,-0.35), 0.25);
 
-    set.balls[0].dest_set = "tree-tree";
-    set.balls[0].dest_ball_id = 0;
+    set.balls[5].dest_set = "tree-tree";
+    set.balls[5].dest_ball_id = 5;
     set.addLeafBall(0,1,2,4);
     set.addLeafBall(2,3,4,5);
     set.leaf_union = false;
