@@ -24,6 +24,7 @@ int main()
   cube_sphere2();
   cube_tree();
   ball();
+  clusterTree2();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND

@@ -201,31 +201,57 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
               << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
 }
 
+Eigen::Vector3d findMeetingPoint(const std::vector<Eigen::Vector3d>& cs, const std::vector<double>& rs) 
+{
+// 1. Shift everything so cs[0] is the origin to improve numerical stability
+  Eigen::Vector3d origin = cs[0];
+  Eigen::Matrix<double, 2, 3> A;
+  Eigen::Vector2d b;
+
+  for (int i = 1; i < 3; ++i) 
+  {
+    Eigen::Vector3d relative_c = cs[i] - origin;
+    // Linear equation: 2 * P . relative_c = r0^2 - ri^2 + ||relative_c||^2
+    A.row(i - 1) = 2.0 * relative_c.transpose();  
+    double r0_sq = rs[0] * rs[0];
+    double ri_sq = rs[i] * rs[i];
+    double dist_sq = relative_c.squaredNorm();
+    b(i - 1) = r0_sq - ri_sq + dist_sq;
+  }
+
+  // 2. Solve the underdetermined system A * P = b
+  // CompleteOrthogonalDecomposition finds the point P with the minimum norm.
+  // Since our system is centered at cs[0] and the rows of A span the plane 
+  // of the triangle, this solution is guaranteed to lie in that plane.
+  Eigen::Vector3d p_relative = A.completeOrthogonalDecomposition().solve(b);
+
+  // 3. Shift back to world coordinates
+  return p_relative + origin;
+}
+
 void Landscape::Set::calculateLeafBall(int i, int j, int k, double scale)
 {
   // 4th row: Cx must lie in the plane of the 3 centres
   const std::array<int,3> idx = {i, j, k};
-  std::vector<Eigen::Vector3d> centres(3);
+  std::vector<Eigen::Vector3d> cs(3);
+  std::vector<double> rs(3);
   for (int row = 0; row < 3; row++)
   {
     const Ball &b = balls[idx[row]];
     if (b.curvature == 0.0)
       std::cerr << "Error: can't use this leafBall method on planes" << std::endl;
-    centres[row] = b.dir * (b.dist + 1.0 / b.curvature);
+    cs[row] = b.dir * (b.dist + 1.0 / b.curvature);
+    rs[row] = 1.0/b.curvature;
   }
 
-  Eigen::Vector3d v1 = centres[1] - centres[0];
-  Eigen::Vector3d v2 = centres[2] - centres[0];
+  Eigen::Vector3d v1 = cs[1] - cs[0];
+  Eigen::Vector3d v2 = cs[2] - cs[0];
   Eigen::Vector3d n = v1.cross(v2);
-  if (n.norm() < 1e-10)
-  {
-    std::cerr << "[addLeafBall3] degenerate: 3 centres are collinear\n";
-    return;
-  }
   double area = n.norm() / 2.0;
-  double radius = std::sqrt(area / (2.0 * 3.14159));
-  Eigen::Vector3d centre = centres[0] + (v2.squaredNorm()*n.cross(v1) + v1.squaredNorm()*v2.cross(n)) / (2.0 * n.squaredNorm());
   n.normalize();
+  double radius = std::sqrt(area / (2.0 * 3.14159));
+
+  Eigen::Vector3d centre = findMeetingPoint(cs, rs);
   double dir = centre.dot(n) > 0.0 ? 1.0 : -1.0; // cheat which assumes set centred around 0,0,0
   centre -= n*radius*scale*dir;
   radius *= std::abs(scale);

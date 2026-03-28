@@ -131,7 +131,7 @@
   {
     land.sets.push_back(Landscape::Set("shell-shell", 6));
     Landscape::Set &set = land.sets.back();
-    set.colour = Eigen::Vector4d(1,0,0,1);
+    set.colour = Eigen::Vector4d(0.6,0.4,0.25,1);
     // octahedron of order 3, so 0=top, 1,2,3,4 is mid and 5 is base
     int last_i = 4;
     for (int i = 1; i<=4; i++)
@@ -150,7 +150,7 @@
     set.balls[4].initSphere(Eigen::Vector3d(0,-1,0), 1.0);
     set.balls[5].initSphere(Eigen::Vector3d(0,0,-0.35), 0.25);
 
-    set.balls[5].dest_set = "tree-tree";
+    set.balls[5].dest_set = "cluster-tree2";
     set.balls[5].dest_ball_id = 5;
     set.addLeafBall(0,1,2,4);
     set.addLeafBall(2,3,4,5);
