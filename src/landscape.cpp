@@ -56,10 +56,11 @@ void Landscape::calculateLeaves()
 {
   for (auto &set: sets)
   {
-    for (auto &lbi: set.leaf_ball_ids)
+    for (int i = 0; i<(int)set.leaf_ball_ids.size(); i++)
     {
+      auto &lbi = set.leaf_ball_ids[i];
       if (lbi[3] == -1)
-        set.calculateLeafBall(lbi[0], lbi[1], lbi[2]);
+        set.calculateLeafBall(lbi[0], lbi[1], lbi[2], set.leaf_ball_scales[i]);
       else 
         set.calculateLeafBall(lbi[0], lbi[1], lbi[2], lbi[3]);
     }

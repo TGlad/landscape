@@ -89,7 +89,7 @@
       last_i = i;
     }
     // now come up with some approximate locations
-    double eq = 0.3; // equatorial distance and radius
+    double eq = 0.25; // equatorial distance and radius
     set.balls[0].initSphere(Eigen::Vector3d(0, 0, 1), 1.0);
     set.balls[1].initSphere(Eigen::Vector3d(eq,0, 0), eq);
     set.balls[2].initSphere(Eigen::Vector3d(0,eq, 0), eq);

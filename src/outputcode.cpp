@@ -25,8 +25,20 @@ void Landscape::outputCode(const std::string &filename) const
   // Build per-set offsets into the flat ball array
   int num_sets = (int)sets.size();
   std::vector<int> offsets(num_sets + 1, 0);
+  std::vector<int> loc_offsets, locs;
+  int count = 0;
   for (int si = 0; si < num_sets; si++)
+  {
     offsets[si + 1] = offsets[si] + (int)sets[si].balls.size();
+    for (auto &ball: sets[si].balls)
+    {
+      loc_offsets.push_back(count);
+      locs.insert(locs.end(), ball.location.begin(), ball.location.end());
+      count += ball.location.size();
+    }
+  }
+  loc_offsets.push_back(count);
+
   int total_balls = offsets[num_sets];
 
   // Build per-set offsets into the flat leaf_ball array
@@ -42,6 +54,10 @@ void Landscape::outputCode(const std::string &filename) const
         if (&sets[si].balls[bi] == ball) return offsets[si] + bi;
     return -1;
   };
+
+  int max_balls_per_set = 0;
+  for (auto &set: sets)
+    max_balls_per_set = std::max(max_balls_per_set, (int)set.balls.size());
 
   // Find which set index a Ball pointer belongs to (-1 if null)
   auto setIndex = [&](const Set::Ball *ball) -> int {
@@ -94,7 +110,19 @@ void Landscape::outputCode(const std::string &filename) const
   out << "const bool LEAF_UNION[" << num_sets << "] = bool[" << num_sets << "](";
   for (int si = 0; si < num_sets; si++)
     out << (sets[si].leaf_union ? "true" : "false") << (si < num_sets - 1 ? ", " : "");
-  out << ");\n\n";
+  out << ");\n";
+  out << "const int LOCATION_OFFSETS[" << loc_offsets.size() << "] = int[" << loc_offsets.size() << "](";
+  for (int si = 0; si<loc_offsets.size(); si++)
+    out << loc_offsets[si] << (si < loc_offsets.size()-1 ? ", " : "");
+  out << ");\n";
+  if (locs.empty())
+    locs.push_back(0); // since can't have 0-length arrays
+  out << "const int NUM_LOCATIONS = " << locs.size() << ";\n";
+  out << "const int LOCATIONS[NUM_LOCATIONS] = int[" << locs.size() << "](";
+  for (int si = 0; si<locs.size(); si++)
+    out << locs[si] << (si < locs.size()-1 ? ", " : "");
+  out << ");\n";
+  out << "const int MAX_BALLS_PER_SET = " << max_balls_per_set << ";\n\n";
 
   // ── Flat ball array ───────────────────────────────────────────────────────
   out << "const int NUM_BALLS = " << total_balls << ";\n";

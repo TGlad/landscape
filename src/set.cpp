@@ -102,10 +102,12 @@ void Landscape::Set::findOrthogonalSphere(int I, int J, int K, int L)
 void Landscape::Set::addLeafBall(int i, int j, int k, int l)
 {
   leaf_ball_ids.push_back(Eigen::Vector4i(i,j,k,l));
+  leaf_ball_scales.push_back(1.0);
 }
-void Landscape::Set::addLeafBall(int i, int j, int k)
+void Landscape::Set::addLeafBall(int i, int j, int k, double scale)
 {
   leaf_ball_ids.push_back(Eigen::Vector4i(i,j,k,-1));
+  leaf_ball_scales.push_back(scale);
 }
 
 
@@ -199,73 +201,40 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
               << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
 }
 
-void Landscape::Set::calculateLeafBall(int i, int j, int k)
+void Landscape::Set::calculateLeafBall(int i, int j, int k, double scale)
 {
-  // Orthogonal sphere whose centre lies in the plane of the 3 ball centres.
-  // 3 orthogonality rows (same form as the 4-ball version) + 1 plane-constraint row.
+  // 4th row: Cx must lie in the plane of the 3 centres
   const std::array<int,3> idx = {i, j, k};
-  Eigen::Matrix4d M;
-  Eigen::Vector4d rhs;
-
-  std::array<Eigen::Vector3d, 3> centers;
+  std::vector<Eigen::Vector3d> centres(3);
   for (int row = 0; row < 3; row++)
   {
     const Ball &b = balls[idx[row]];
-    if (b.curvature != 0.0)
-    {
-      double r = 1.0 / b.curvature;
-      Eigen::Vector3d C = b.dir * (b.dist + r);
-      centers[row] = C;
-      M(row, 0) = 2.0 * C.x();
-      M(row, 1) = 2.0 * C.y();
-      M(row, 2) = 2.0 * C.z();
-      M(row, 3) = -1.0;
-      rhs(row) = C.squaredNorm() - r * r;
-    }
-    else
-    {
-      // Plane: orthogonal sphere centre lies on the plane; use closest point to origin for centre
-      centers[row] = b.dir * b.dist;
-      M(row, 0) = b.dir.x();
-      M(row, 1) = b.dir.y();
-      M(row, 2) = b.dir.z();
-      M(row, 3) = 0.0;
-      rhs(row) = b.dist;
-    }
+    if (b.curvature == 0.0)
+      std::cerr << "Error: can't use this leafBall method on planes" << std::endl;
+    centres[row] = b.dir * (b.dist + 1.0 / b.curvature);
   }
 
-  // 4th row: Cx must lie in the plane of the 3 centres
-  Eigen::Vector3d n = (centers[1] - centers[0]).cross(centers[2] - centers[0]);
+  Eigen::Vector3d v1 = centres[1] - centres[0];
+  Eigen::Vector3d v2 = centres[2] - centres[0];
+  Eigen::Vector3d n = v1.cross(v2);
   if (n.norm() < 1e-10)
   {
     std::cerr << "[addLeafBall3] degenerate: 3 centres are collinear\n";
     return;
   }
+  double area = n.norm() / 2.0;
+  double radius = std::sqrt(area / (2.0 * 3.14159));
+  Eigen::Vector3d centre = centres[0] + (v2.squaredNorm()*n.cross(v1) + v1.squaredNorm()*v2.cross(n)) / (2.0 * n.squaredNorm());
   n.normalize();
-  double plane_d = n.dot(centers[0]);
-  M(3, 0) = n.x();
-  M(3, 1) = n.y();
-  M(3, 2) = n.z();
-  M(3, 3) = 0.0;
-  rhs(3) = plane_d;
+  double dir = centre.dot(n) > 0.0 ? 1.0 : -1.0; // cheat which assumes set centred around 0,0,0
+  centre -= n*radius*scale*dir;
+  radius *= std::abs(scale);
 
-  Eigen::Vector4d sol = M.fullPivLu().solve(rhs);
-  Eigen::Vector3d Cx(sol(0), sol(1), sol(2));
-  double w   = sol(3);
-  double rx2 = Cx.squaredNorm() - w;
-
-  if (rx2 <= 0.0)
-  {
-    std::cerr << "[addLeafBall3] degenerate: rx\u00b2 = " << rx2 << " (no real orthogonal sphere)\n";
-    return;
-  }
-
-  double rx = std::sqrt(rx2);
   Ball leaf;
   leaf.parent_set = this;
-  leaf.dir        = Cx.normalized();
-  leaf.dist       = Cx.norm() - rx;
-  leaf.curvature  = 1.0 / rx;
+  leaf.dir        = centre.normalized();
+  leaf.dist       = centre.norm() - radius;
+  leaf.curvature  = 1.0 / radius;
   leaf_balls.push_back(leaf);
 }
 

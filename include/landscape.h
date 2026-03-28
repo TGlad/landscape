@@ -20,7 +20,8 @@ struct Landscape
       double dist;
       double curvature;
       std::string dest_set;
-      int dest_ball_id {-1}; // -1 will pick the first in the set that works
+      std::vector<int> location; // sequence of ids to pass through before swapping to dest_set 
+      int dest_ball_id; // -1 choses the first that works topologically
       bool is_fixed {false};
 
       void initSphere(const Eigen::Vector3d &p, double rad, bool fix = false);
@@ -55,14 +56,15 @@ struct Landscape
     bool render_volume_only {false};
 
     void addLeafBall(int i, int j, int k, int l);
-    void addLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
+    void addLeafBall(int i, int j, int k, double scale = 1.0); // for n=3 (bald) points
     void findOrthogonalSphere(int I, int J, int K, int L);
 
     // internal stuff
     std::vector<Eigen::Vector4i> leaf_ball_ids;
+    std::vector<double> leaf_ball_scales;
     bool verifyConnectivity(double tol = 1e-4) const;
     void calculateLeafBall(int i, int j, int k, int l);
-    void calculateLeafBall(int i, int j, int k); // smallest: center in plane of 3 ball centers
+    void calculateLeafBall(int i, int j, int k, double scale); // smallest: center in plane of 3 ball centers
 
     // Copy/move constructors must re-point parent_set to *this, not to the source.
     Set(const Set &o);
