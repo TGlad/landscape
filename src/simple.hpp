@@ -34,6 +34,7 @@
   {
     land.sets.push_back(Landscape::Set("cluster-tree", 5));
     Landscape::Set &set = land.sets.back();
+    set.colour = Eigen::Vector4d(0.25,0.7,0.2,1);
     // double tetrahedron
     int last_i = 3;
     for (int i = 1; i<=3; i++)
@@ -131,7 +132,7 @@
   {
     land.sets.push_back(Landscape::Set("shell-shell", 6));
     Landscape::Set &set = land.sets.back();
-    set.colour = Eigen::Vector4d(0.6,0.4,0.25,1);
+    set.colour = Eigen::Vector4d(0.7,0.5,0.35,1);
     // octahedron of order 3, so 0=top, 1,2,3,4 is mid and 5 is base
     int last_i = 4;
     for (int i = 1; i<=4; i++)
@@ -142,13 +143,20 @@
       set.conn(last_i, i) = 3;
       last_i = i;
     }
+
+    constexpr double noise = 0.2;
+    auto with_noise = [&](const Eigen::Vector3d &v)
+    {
+      return v + noise * Eigen::Vector3d::Random();
+    };    
+
     // now come up with some approximate locations
-    set.balls[0].initSphere(Eigen::Vector3d(0,0,0.35), 0.25);
-    set.balls[1].initSphere(Eigen::Vector3d(1,0,0), 1.0);
-    set.balls[2].initSphere(Eigen::Vector3d(0,1,0), 1.0);
-    set.balls[3].initSphere(Eigen::Vector3d(-1,0,0), 1.0);
-    set.balls[4].initSphere(Eigen::Vector3d(0,-1,0), 1.0);
-    set.balls[5].initSphere(Eigen::Vector3d(0,0,-0.35), 0.25);
+    set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0,0.35)), 0.35);
+    set.balls[1].initSphere(with_noise(Eigen::Vector3d(1,0,0)), 1.0);
+    set.balls[2].initSphere(with_noise(Eigen::Vector3d(0,1,0)), 1.0);
+    set.balls[3].initSphere(with_noise(Eigen::Vector3d(-1,0,0)), 1.0);
+    set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), 1.0);
+    set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0,-0.35)), 0.35);
 
     set.balls[5].dest_set = "cluster-tree2";
     set.balls[5].dest_ball_id = 5;

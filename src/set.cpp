@@ -201,6 +201,187 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
               << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
 }
 
+bool triIntersectsSphere(const std::vector<Eigen::Vector3d> &tri, const Eigen::Vector3d &centre, double rad, double eps)
+{
+  if (tri.size() != 3 || rad <= 0.0)
+    return false;
+
+  const double margin = eps;
+  const double effective_rad = rad - margin;
+  if (effective_rad <= 0.0)
+    return false;
+
+  const Eigen::Vector3d &a = tri[0];
+  const Eigen::Vector3d &b = tri[1];
+  const Eigen::Vector3d &c = tri[2];
+
+  // Closest point on triangle to sphere center (Ericson, Real-Time Collision Detection).
+  Eigen::Vector3d ab = b - a;
+  Eigen::Vector3d ac = c - a;
+  Eigen::Vector3d ap = centre - a;
+
+  double d1 = ab.dot(ap);
+  double d2 = ac.dot(ap);
+  if (d1 <= 0.0 && d2 <= 0.0)
+    return (centre - a).squaredNorm() < effective_rad * effective_rad;
+
+  Eigen::Vector3d bp = centre - b;
+  double d3 = ab.dot(bp);
+  double d4 = ac.dot(bp);
+  if (d3 >= 0.0 && d4 <= d3)
+    return (centre - b).squaredNorm() < effective_rad * effective_rad;
+
+  double vc = d1 * d4 - d3 * d2;
+  if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0)
+  {
+    double v = d1 / (d1 - d3);
+    Eigen::Vector3d closest = a + v * ab;
+    return (centre - closest).squaredNorm() < effective_rad * effective_rad;
+  }
+
+  Eigen::Vector3d cp = centre - c;
+  double d5 = ab.dot(cp);
+  double d6 = ac.dot(cp);
+  if (d6 >= 0.0 && d5 <= d6)
+    return (centre - c).squaredNorm() < effective_rad * effective_rad;
+
+  double vb = d5 * d2 - d1 * d6;
+  if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0)
+  {
+    double w = d2 / (d2 - d6);
+    Eigen::Vector3d closest = a + w * ac;
+    return (centre - closest).squaredNorm() < effective_rad * effective_rad;
+  }
+
+  double va = d3 * d6 - d5 * d4;
+  if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0)
+  {
+    Eigen::Vector3d bc = c - b;
+    double w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+    Eigen::Vector3d closest = b + w * bc;
+    return (centre - closest).squaredNorm() < effective_rad * effective_rad;
+  }
+
+  // Inside face region.
+  double denom = 1.0 / (va + vb + vc);
+  double v = vb * denom;
+  double w = vc * denom;
+  Eigen::Vector3d closest = a + ab * v + ac * w;
+  return (centre - closest).squaredNorm() < effective_rad * effective_rad;
+}
+
+void Landscape::Set::calculateLeafBalls()
+{
+  // iterate leaf_ball_ids and run calculateLeafBall on each suitable quad
+  // then filter out those outside the surface polyhedron
+
+  for (int i = 0; i<(int)leaf_ball_set.size()-3; i++)
+  {
+    int I = leaf_ball_set[i];
+    for (int j = i+1; j<(int)leaf_ball_set.size()-2; j++)
+    {
+      int J = leaf_ball_set[j];
+      for (int k = j+1; k<(int)leaf_ball_set.size()-1; k++)
+      {
+        int K = leaf_ball_set[k];
+        for (int l = k+1; l<(int)leaf_ball_set.size(); l++)
+        {
+          int L = leaf_ball_set[l];
+          int count = conn(I,J)>0 ? 1 : 0;
+          count += conn(I,K)>0 ? 1 : 0;
+          count += conn(I,L)>0 ? 1 : 0;
+          count += conn(J,K)>0 ? 1 : 0;
+          count += conn(J,L)>0 ? 1 : 0;
+          count += conn(K,L)>0 ? 1 : 0;
+          if (count < 5)
+            continue;
+          calculateLeafBall(I,J,K,L);
+        }
+      }
+    }
+  }
+  // OK now get the set of triangles:
+  std::vector<Eigen::Vector3i> tris;
+  double max_dist = 0.0;
+  for (int i = 0; i<(int)leaf_ball_set.size()-2; i++)
+  {
+    int I = leaf_ball_set[i];
+    Eigen::Vector3i tri;
+    tri[0] = I;
+    for (int j = i+1; j<(int)leaf_ball_set.size()-1; j++)
+    {
+      int J = leaf_ball_set[j];
+      tri[1] = J;
+      for (int k = j+1; k<(int)leaf_ball_set.size(); k++)
+      {
+        int K = leaf_ball_set[k];
+        tri[2] = K;
+        if (conn(I,J)>0 && conn(I,K)>0 && conn(J,K)>0)
+        {
+          for (int c = 0; c<3; c++)
+          {
+            const Ball &b = balls[tri[c]];
+            double r = 1.0 / b.curvature;
+            Eigen::Vector3d v = b.dir * (b.dist + r);
+            max_dist = std::max(max_dist, v.norm() + r);  
+          }
+          tris.push_back(tri);
+        }
+      }
+    }
+  }
+  // now if any triangle intersects any leaf ball then destroy the leaf ball and move on
+  for (auto &tri: tris)
+  {
+    std::vector<Eigen::Vector3d> vs(3);
+    for (int i = 0; i<3; i++)
+    {
+      const Ball &b = balls[tri[i]];
+      double r = 1.0 / b.curvature;
+      vs[i] = b.dir * (b.dist + r);  
+    }
+    for (int i = leaf_balls.size()-1; i>=0; i--)
+    {
+      const Ball &b = leaf_balls[i];
+      double r = 1.0 / b.curvature;
+      Eigen::Vector3d c = b.dir * (b.dist + r);
+      float eps = 0.001;
+      if (triIntersectsSphere(vs, c, r, eps) || c.norm() > max_dist) // max dist is a hack, need better option
+      {
+        leaf_balls[i] = leaf_balls.back();
+        leaf_balls.pop_back();
+      }
+    }
+  }
+
+  for (auto &tri: tris)
+  {
+    if (conn(tri[0], tri[1]) != 3 || conn(tri[1],tri[2]) != 3 || conn(tri[0],tri[2]) != 3)
+      continue;
+    std::vector<Eigen::Vector3d> vs(3);
+    for (int i = 0; i<3; i++)
+    {
+      const Ball &b = balls[tri[i]];
+      double r = 1.0 / b.curvature;
+      vs[i] = b.dir * (b.dist + r);  
+    }
+    bool any_intersect_plane = false;
+    for (int i = leaf_balls.size()-1; i>=0; i--)
+    {
+      const Ball &b = leaf_balls[i];
+      double r = 1.0 / b.curvature;
+      Eigen::Vector3d c = b.dir * (b.dist + r);
+      double eps = 0.001;
+      if (triIntersectsSphere(vs, c, r, -eps))
+        any_intersect_plane = true;
+    }
+    if (!any_intersect_plane)
+    {
+      calculateLeafBall(tri[0],tri[1],tri[2],0.5);      
+    }
+  }
+}
+
 Eigen::Vector3d findMeetingPoint(const std::vector<Eigen::Vector3d>& cs, const std::vector<double>& rs) 
 {
 // 1. Shift everything so cs[0] is the origin to improve numerical stability

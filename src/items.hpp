@@ -107,7 +107,7 @@ auto ball = [&]()
 {
   land.sets.push_back(Landscape::Set("ball", 6));
   Landscape::Set &set = land.sets.back();
-  set.colour = Eigen::Vector4d(0.8,0.6,0.5,1);
+  set.colour = Eigen::Vector4d(0.7,0.5,0.35,1);
   // octahedron of order 3, so 0=top, 1,2,3,4 is mid and 5 is base
   int last_i = 4;
   for (int i = 1; i<=4; i++)
@@ -119,7 +119,7 @@ auto ball = [&]()
     last_i = i;
   }
   // now come up with some approximate locations
-  constexpr double noise = 0.5;
+  constexpr double noise = 0.0;//0.5;
   auto with_noise = [&](const Eigen::Vector3d &v)
   {
     return v + noise * Eigen::Vector3d::Random();
@@ -134,18 +134,20 @@ auto ball = [&]()
 
 //  set.balls[0].location.push_back(0); // go through ball 5 first
 //  set.balls[0].location.push_back(5); // go through ball 5 first
-//  set.balls[0].dest_set = "shell-shell";
-//  set.balls[0].dest_ball_id = 0;
-  set.addLeafBall(0,1,2);
-  set.addLeafBall(0,2,3);
-  set.addLeafBall(0,3,4);
-  set.addLeafBall(0,4,1);
-  set.addLeafBall(5,1,2);
-  set.addLeafBall(5,2,3);
-  set.addLeafBall(5,3,4);
-  set.addLeafBall(5,4,1);
-//  set.addLeafBall(0,1,2,4);
-//  set.addLeafBall(2,3,4,5);
+  set.balls[0].dest_set = "ball-to-landscape";
+  set.balls[0].dest_ball_id = 0;
+/*  double scale = 0.5;
+  set.addLeafBall(0,1,2, scale);
+  set.addLeafBall(0,2,3, scale);
+  set.addLeafBall(0,3,4, scale);
+  set.addLeafBall(0,4,1, scale);
+  set.addLeafBall(5,1,2, scale);
+  set.addLeafBall(5,2,3, scale);
+  set.addLeafBall(5,3,4, scale);
+  set.addLeafBall(5,4,1, scale);*/
+
+  set.addLeafBalls({0,1,2,3,4,5});
+
 
   set.leaf_union = true;
   set.render_volume_only = true; 
@@ -155,7 +157,7 @@ auto clusterTree2 = [&]()
 {
   land.sets.push_back(Landscape::Set("cluster-tree2", 10));
   Landscape::Set &set = land.sets.back();
-  set.colour = Eigen::Vector4d(0.1,0.8,0.1,1);
+  set.colour = Eigen::Vector4d(0.6,0.5,0.3,1);
   // like octahedron of order 3
   // but additional sphere...
   int last_i = 4;
@@ -192,15 +194,19 @@ auto clusterTree2 = [&]()
   set.balls[3].initSphere(with_noise(Eigen::Vector3d(-1,0,0)), 1.0);
   set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), 1.0);
   set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0,-1)), 1.0);
-  set.balls[6].initSphere(with_noise(Eigen::Vector3d(1,1,1)), 1.0);
-  set.balls[7].initSphere(with_noise(Eigen::Vector3d(-1,1,1)), 0.8);
+  set.balls[6].initSphere(with_noise(Eigen::Vector3d(1,1,1)), 1.2);
+  set.balls[7].initSphere(with_noise(Eigen::Vector3d(-1,1,1)), 1.0);
   set.balls[8].initSphere(with_noise(Eigen::Vector3d(-1,-1,1)), 0.5);
   set.balls[9].initSphere(with_noise(Eigen::Vector3d(1,-1,1)), 1.3);
 
-//  set.balls[0].location.push_back(0); // go through ball 5 first
-//  set.balls[0].location.push_back(5); // go through ball 5 first
-//  set.balls[0].dest_set = "shell-shell";
-//  set.balls[0].dest_ball_id = 0;
+  set.balls[6].dest_set = "cluster-tree";
+  set.balls[6].dest_ball_id = 0;
+  set.balls[7].dest_set = "bush1";
+  set.balls[7].dest_ball_id = 0;
+  set.balls[8].dest_set = "bush2";
+  set.balls[8].dest_ball_id = 0;
+  set.balls[9].dest_set = "bush3";
+  set.balls[9].dest_ball_id = 0;
   set.addLeafBall(0,1,2);
   set.addLeafBall(0,2,3);
   set.addLeafBall(0,3,4);
@@ -213,6 +219,168 @@ auto clusterTree2 = [&]()
   set.addLeafBall(0,2,3,7);
   set.addLeafBall(0,3,4,8);
   set.addLeafBall(0,4,1,9);
+
+  set.leaf_union = true;
+  set.render_volume_only = true; 
+};
+
+auto bush1 = [&]()
+{
+  land.sets.push_back(Landscape::Set("bush1", 5));
+  Landscape::Set &set = land.sets.back();
+  set.colour = Eigen::Vector4d(0.25,0.6,0.2,1);
+  // double tetrahedron
+  int last_i = 3;
+  for (int i = 1; i<=3; i++)
+  {
+    set.conn(0, i) = 3;
+    set.conn(4, i) = 3;
+    set.conn(last_i, i) = 3;
+    last_i = i;
+  }
+
+  constexpr double noise = 0.2;
+  auto with_noise = [&](const Eigen::Vector3d &v)
+  {
+    return v + noise * Eigen::Vector3d::Random();
+  };
+
+  // now come up with some approximate locations
+  double eq = 0.2; // equatorial distance and radius
+  set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0.3, 1)), 0.8);
+  set.balls[1].initSphere(with_noise(Eigen::Vector3d( 1,-1, 0)), 0.8);
+  set.balls[2].initSphere(with_noise(Eigen::Vector3d(-1,-1, 0)), 0.8);
+  set.balls[3].initSphere(with_noise(Eigen::Vector3d(0,0,0)), 0.2);
+  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,0.3,-1)), 0.8);
+  set.addLeafBall(0,1,2,3);
+  set.addLeafBall(1,2,3,4);
+  set.leaf_union = true;
+};
+
+auto bush2 = [&]()
+{
+  land.sets.push_back(Landscape::Set("bush2", 5));
+  Landscape::Set &set = land.sets.back();
+  set.colour = Eigen::Vector4d(0.35,0.7,0.2,1);
+  // double tetrahedron
+  int last_i = 3;
+  for (int i = 1; i<=3; i++)
+  {
+    set.conn(0, i) = 3;
+    set.conn(4, i) = 3;
+    set.conn(last_i, i) = 3;
+    last_i = i;
+  }
+
+  constexpr double noise = 0.2;
+  auto with_noise = [&](const Eigen::Vector3d &v)
+  {
+    return v + noise * Eigen::Vector3d::Random();
+  };
+
+  // now come up with some approximate locations
+  double eq = 0.2; // equatorial distance and radius
+  set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0.3, 1)), 0.8);
+  set.balls[1].initSphere(with_noise(Eigen::Vector3d( 1,-1, 0)), 0.8);
+  set.balls[2].initSphere(with_noise(Eigen::Vector3d(-1,-1, 0)), 0.8);
+  set.balls[3].initSphere(with_noise(Eigen::Vector3d(0,0,0)), 0.2);
+  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,0.3,-1)), 0.8);
+  set.addLeafBall(0,1,2,3);
+  set.addLeafBall(1,2,3,4);
+  set.leaf_union = true;
+};
+
+auto bush3 = [&]()
+{
+  land.sets.push_back(Landscape::Set("bush3", 5));
+  Landscape::Set &set = land.sets.back();
+  set.colour = Eigen::Vector4d(0.3,0.65,0.35,1);
+  // double tetrahedron
+  int last_i = 3;
+  for (int i = 1; i<=3; i++)
+  {
+    set.conn(0, i) = 3;
+    set.conn(4, i) = 3;
+    set.conn(last_i, i) = 3;
+    last_i = i;
+  }
+
+  constexpr double noise = 0.2;
+  auto with_noise = [&](const Eigen::Vector3d &v)
+  {
+    return v + noise * Eigen::Vector3d::Random();
+  };
+
+  // now come up with some approximate locations
+  double eq = 0.2; // equatorial distance and radius
+  set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0.3, 1)), 0.8);
+  set.balls[1].initSphere(with_noise(Eigen::Vector3d( 1,-1, 0)), 0.8);
+  set.balls[2].initSphere(with_noise(Eigen::Vector3d(-1,-1, 0)), 0.8);
+  set.balls[3].initSphere(with_noise(Eigen::Vector3d(0,0,0)), 0.2);
+  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,0.3,-1)), 0.8);
+  set.addLeafBall(0,1,2,3);
+  set.addLeafBall(1,2,3,4);
+  set.leaf_union = true;
+};
+
+auto ballToLandscape = [&]()
+{
+  // ball has a symmetric pyramid structure, which can switch directly to
+  // tree-like protrusions or shell-like indentations, but not to saddle-like
+  // landscapes, so we need a transition tile
+  land.sets.push_back(Landscape::Set("ball-to-landscape", 7));
+  Landscape::Set &set = land.sets.back();
+  set.colour = Eigen::Vector4d(0.7,0.6,0.5,1);
+  int last_i = 4;
+  // bottom pyramid
+  for (int i = 1; i<=4; i++)
+  {
+    set.conn(0, i) = 3;
+    // around the meridian
+    set.conn(last_i, i) = 3;
+    last_i = i;
+  }
+  set.conn(5,1) = 3;
+  set.conn(5,2) = 3;
+  set.conn(5,3) = 3;
+  set.conn(6,3) = 3;
+  set.conn(6,4) = 3;
+  set.conn(6,1) = 3;
+  set.conn(5,6) = 3;
+
+  // now come up with some approximate locations
+  constexpr double noise = 0.0;
+  auto with_noise = [&](const Eigen::Vector3d &v)
+  {
+    return v + noise * Eigen::Vector3d::Random();
+  };
+  
+  set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0,1)), 1.0);
+  set.balls[1].initSphere(with_noise(Eigen::Vector3d(1,0,0)), 1.0);
+  set.balls[2].initSphere(with_noise(Eigen::Vector3d(0,1,0)), 1.0);
+  set.balls[3].initSphere(with_noise(Eigen::Vector3d(-1,0,0)), 1.0);
+  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), 1.0);
+  set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0.3,-1)), 1.0);
+  set.balls[6].initSphere(with_noise(Eigen::Vector3d(0,-0.3,-1)), 1.0);
+
+//  set.balls[0].location.push_back(0); // go through ball 5 first
+//  set.balls[0].location.push_back(5); // go through ball 5 first
+//  set.balls[0].dest_set = "shell-shell";
+//  set.balls[0].dest_ball_id = 0;
+/*  double scale = 0.9;
+  set.addLeafBall(0,1,2, scale);
+  set.addLeafBall(0,2,3, scale);
+  set.addLeafBall(0,3,4, scale);
+  set.addLeafBall(0,4,1, scale);
+
+  set.addLeafBall(5,1,2, scale);
+  set.addLeafBall(5,2,3, scale);
+  set.addLeafBall(6,3,4, scale);
+  set.addLeafBall(6,4,1, scale);
+  set.addLeafBall(5,6,1, scale);
+  set.addLeafBall(5,6,3, scale);*/
+
+  set.addLeafBalls({0,1,2,3,4,5,6});
 
   set.leaf_union = true;
   set.render_volume_only = true; 

@@ -50,6 +50,7 @@ struct Landscape
     };
     std::vector<Ball> balls;
     std::vector<Ball> leaf_balls; // used to represent set at leaf
+    std::vector<int> leaf_ball_set;
 
     Adj conn; // connectivity. -1=kissing, 0 is disconnected
     bool leaf_union; // union if true, else intersection
@@ -57,6 +58,7 @@ struct Landscape
 
     void addLeafBall(int i, int j, int k, int l);
     void addLeafBall(int i, int j, int k, double scale = 1.0); // for n=3 (bald) points
+    void addLeafBalls(std::vector<int> leaf_ids){  leaf_ball_set = leaf_ids; }
     void findOrthogonalSphere(int I, int J, int K, int L);
 
     // internal stuff
@@ -65,6 +67,7 @@ struct Landscape
     bool verifyConnectivity(double tol = 1e-4) const;
     void calculateLeafBall(int i, int j, int k, int l);
     void calculateLeafBall(int i, int j, int k, double scale); // smallest: center in plane of 3 ball centers
+    void calculateLeafBalls(); // uses leaf_ball_ids
 
     // Copy/move constructors must re-point parent_set to *this, not to the source.
     Set(const Set &o);
