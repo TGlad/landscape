@@ -119,7 +119,7 @@ auto ball = [&]()
     last_i = i;
   }
   // now come up with some approximate locations
-  constexpr double noise = 0.0;//0.5;
+  constexpr double noise = 0.5;//0.5;
   auto with_noise = [&](const Eigen::Vector3d &v)
   {
     return v + noise * Eigen::Vector3d::Random();
