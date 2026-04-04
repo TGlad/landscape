@@ -119,7 +119,7 @@ auto ball = [&]()
     last_i = i;
   }
   // now come up with some approximate locations
-  constexpr double noise = 0.5;//0.5;
+  constexpr double noise = 0.1;//0.5;
   auto with_noise = [&](const Eigen::Vector3d &v)
   {
     return v + noise * Eigen::Vector3d::Random();
@@ -133,7 +133,7 @@ auto ball = [&]()
   set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0,-1)), 1.0);
 
 //  set.balls[0].location.push_back(0); // go through ball 5 first
-//  set.balls[0].location.push_back(5); // go through ball 5 first
+  set.balls[0].location.push_back(5); // go through ball 5 first
   set.balls[0].dest_set = "ball-to-landscape";
   set.balls[0].dest_ball_id = 0;
 /*  double scale = 0.5;
