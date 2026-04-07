@@ -119,22 +119,24 @@ auto ball = [&]()
     last_i = i;
   }
   // now come up with some approximate locations
-  constexpr double noise = 0.1;//0.5;
+  constexpr double noise = 0.0;//0.5;
   auto with_noise = [&](const Eigen::Vector3d &v)
   {
     return v + noise * Eigen::Vector3d::Random();
   };
   
-  set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0,1)), 1.0);
-  set.balls[1].initSphere(with_noise(Eigen::Vector3d(1,0,0)), 1.0);
-  set.balls[2].initSphere(with_noise(Eigen::Vector3d(0,1,0)), 1.0);
-  set.balls[3].initSphere(with_noise(Eigen::Vector3d(-1,0,0)), 1.0);
-  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), 1.0);
-  set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0,-1)), 1.0);
+  double mobility = 0.5;
+  double r = std::sqrt(2.0/3.0);
+  set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0,1)), 1.0, mobility);
+  set.balls[1].initSphere(with_noise(Eigen::Vector3d(1,0,0)), r, 0.0);
+  set.balls[2].initSphere(with_noise(Eigen::Vector3d(0,1,0)), r, 0.0);
+  set.balls[3].initSphere(with_noise(Eigen::Vector3d(-1,0,0)), r, 0.0);
+  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), r, 0.0);
+  set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0,-1)), 1.0, mobility);
 
 //  set.balls[0].location.push_back(0); // go through ball 5 first
-  set.balls[0].location.push_back(5); // go through ball 5 first
-  set.balls[0].dest_set = "ball-to-landscape";
+//  set.balls[0].location.push_back(5); // go through ball 5 first
+  set.balls[0].dest_set = "shell-shell";
   set.balls[0].dest_ball_id = 0;
 /*  double scale = 0.5;
   set.addLeafBall(0,1,2, scale);
@@ -341,12 +343,12 @@ auto ballToLandscape = [&]()
     last_i = i;
   }
   set.conn(5,1) = 3;
-  set.conn(5,2) = 3;
+  set.conn(5,2) = 2;
   set.conn(5,3) = 3;
   set.conn(6,3) = 3;
-  set.conn(6,4) = 3;
+  set.conn(6,4) = 2;
   set.conn(6,1) = 3;
-  set.conn(5,6) = 3;
+  set.conn(5,6) = 2;
 
   // now come up with some approximate locations
   constexpr double noise = 0.0;
@@ -355,13 +357,14 @@ auto ballToLandscape = [&]()
     return v + noise * Eigen::Vector3d::Random();
   };
   
+  double r = std::sqrt(2.0/3.0);
   set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0,1)), 1.0);
-  set.balls[1].initSphere(with_noise(Eigen::Vector3d(1,0,0)), 1.0);
-  set.balls[2].initSphere(with_noise(Eigen::Vector3d(0,1,0)), 1.0);
-  set.balls[3].initSphere(with_noise(Eigen::Vector3d(-1,0,0)), 1.0);
-  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), 1.0);
-  set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0.3,-1)), 1.0);
-  set.balls[6].initSphere(with_noise(Eigen::Vector3d(0,-0.3,-1)), 1.0);
+  set.balls[1].initSphere(with_noise(Eigen::Vector3d(1,0,0)), r, 0.0);
+  set.balls[2].initSphere(with_noise(Eigen::Vector3d(0,1,0)), r, 0.0);
+  set.balls[3].initSphere(with_noise(Eigen::Vector3d(-1,0,0)), r, 0.0);
+  set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), r, 0.0);
+  set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0.6,-1.0)), 1.0);
+  set.balls[6].initSphere(with_noise(Eigen::Vector3d(0,-0.6,-1.0)), 1.0);
 
 //  set.balls[0].location.push_back(0); // go through ball 5 first
 //  set.balls[0].location.push_back(5); // go through ball 5 first

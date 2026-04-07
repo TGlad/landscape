@@ -201,6 +201,16 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
               << "  " << (ok ? "ALL OK" : "FAIL") << "\n\n";
 }
 
+bool triIntersectsSphere2(const std::vector<Eigen::Vector3d> &tri, const Eigen::Vector3d &centre, double rad, double eps)
+{
+  Eigen::Vector3d norm = (tri[2] - tri[0]).cross(tri[1]-tri[0]).normalized();
+  if (tri[0].dot(norm) < 0.0)
+    norm = -norm;
+  double d_plane = tri[0].dot(norm);
+  double d_centre = centre.dot(norm);
+  return d_plane < d_centre + rad - eps;
+}
+
 bool triIntersectsSphere(const std::vector<Eigen::Vector3d> &tri, const Eigen::Vector3d &centre, double rad, double eps)
 {
   if (tri.size() != 3 || rad <= 0.0)
@@ -345,15 +355,14 @@ void Landscape::Set::calculateLeafBalls()
       const Ball &b = leaf_balls[i];
       double r = 1.0 / b.curvature;
       Eigen::Vector3d c = b.dir * (b.dist + r);
-      float eps = 0.001;
-      if (triIntersectsSphere(vs, c, r, eps) || c.norm() > max_dist) // max dist is a hack, need better option
+      float eps = 0.0001;
+      if (triIntersectsSphere2(vs, c, r, eps) || c.norm() > max_dist) // max dist is a hack, need better option
       {
         leaf_balls[i] = leaf_balls.back();
         leaf_balls.pop_back();
       }
     }
   }
-
   for (auto &tri: tris)
   {
     if (conn(tri[0], tri[1]) != 3 || conn(tri[1],tri[2]) != 3 || conn(tri[0],tri[2]) != 3)
@@ -371,8 +380,8 @@ void Landscape::Set::calculateLeafBalls()
       const Ball &b = leaf_balls[i];
       double r = 1.0 / b.curvature;
       Eigen::Vector3d c = b.dir * (b.dist + r);
-      double eps = 0.001;
-      if (triIntersectsSphere(vs, c, r, -eps))
+      double eps = 0.0001;
+      if (triIntersectsSphere2(vs, c, r, -eps))
         any_intersect_plane = true;
     }
     if (!any_intersect_plane)

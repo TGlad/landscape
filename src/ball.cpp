@@ -3,20 +3,21 @@
 #include <iomanip>
 #include <numeric>
 #include <random>
+#include <algorithm>
 
-void Landscape::Set::Ball::initSphere(const Eigen::Vector3d &p, double rad, bool fix)
+void Landscape::Set::Ball::initSphere(const Eigen::Vector3d &p, double rad, double mobility_value)
 {
   dir = p.normalized();
   dist = p.norm() - rad;
   curvature = 1.0/rad;
-  is_fixed = fix;
+  mobility = mobility_value;
 }
-void Landscape::Set::Ball::initPlane(const Eigen::Vector3d &normal, double d, bool fix)
+void Landscape::Set::Ball::initPlane(const Eigen::Vector3d &normal, double d, double mobility_value)
 {
   dir = normal.normalized();
   dist = d;
   curvature = 0.0;
-  is_fixed = fix;
+  mobility = mobility_value;
 }
 
 Eigen::Vector3d Landscape::Set::Ball::Mobius::transformPoint(const Eigen::Vector3d &p) const

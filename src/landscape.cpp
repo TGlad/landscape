@@ -602,7 +602,7 @@ void Landscape::applyConnectivity(int iterations)
   // collapsing attractor: as src and dst drift toward each other the refreshed
   // M→I, which then tightens the src≈dst constraint further — ending with
   // both sets at the same position rather than a proper Möbius image of each.
-  const int warmup_iters = 500;
+  const int warmup_iters = 1500;
   for (int it = 0; it < iterations + warmup_iters; it++)
   {
     // After the warm-up phase, compute M once and start applying mobius pairs.
@@ -696,8 +696,10 @@ void Landscape::applyConnectivity(int iterations)
           }
         }
 
-        if (bi.is_fixed) { gCi = Eigen::Vector3d::Zero(); gri = 0.0; }
-        if (bj.is_fixed) { gCj = Eigen::Vector3d::Zero(); grj = 0.0; }
+        const double wi = bi.mobility;
+        const double wj = bj.mobility;
+        gCi *= wi;  gri *= wi;
+        gCj *= wj;  grj *= wj;
 
         double g2 = gCi.squaredNorm() + gri*gri + gCj.squaredNorm() + grj*grj;
         double step = -err / (g2 + damping);
@@ -761,8 +763,10 @@ void Landscape::applyConnectivity(int iterations)
         Eigen::Vector3d g_n_scaled = (C_tang2 > 1e-20) ? C_tang / C_tang2 : C_tang;
         double gd = -1.0;
 
-        if (sphere.is_fixed) { gC = Eigen::Vector3d::Zero(); gr = 0.0; }
-        if (plane.is_fixed)  { g_n_scaled = Eigen::Vector3d::Zero(); gd = 0.0; }
+        const double sphere_w = sphere.mobility;
+        const double plane_w  = plane.mobility;
+        gC *= sphere_w;            gr *= sphere_w;
+        g_n_scaled *= plane_w;     gd *= plane_w;
 
         double g2 = gC.squaredNorm() + gr*gr + g_n_scaled.squaredNorm() + gd*gd;
         double step = -error / (g2 + damping);
@@ -775,9 +779,11 @@ void Landscape::applyConnectivity(int iterations)
         continue; // step already applied
       }
 
-      // Fixed balls contribute nothing to the gradient and receive no update.
-      if (bi.is_fixed) { g_dir_i = Eigen::Vector3d::Zero(); g_dist_i = 0; g_curv_i = 0; }
-      if (bj.is_fixed) { g_dir_j = Eigen::Vector3d::Zero(); g_dist_j = 0; g_curv_j = 0; }
+      // Mobility weights: 0=fixed, 1=standard, >1 more responsive.
+      const double wi = bi.mobility;
+      const double wj = bj.mobility;
+      g_dir_i *= wi;  g_dist_i *= wi;  g_curv_i *= wi;
+      g_dir_j *= wj;  g_dist_j *= wj;  g_curv_j *= wj;
 
       double g2 = g_dir_i.squaredNorm() + g_dist_i*g_dist_i + g_curv_i*g_curv_i
                 + g_dir_j.squaredNorm() + g_dist_j*g_dist_j + g_curv_j*g_curv_j;
@@ -853,8 +859,10 @@ void Landscape::applyConnectivity(int iterations)
       auto [gDirS, gDistS, gCurvS] = sigma_to_ball_grad(sA, rS, CS, g_sigma_s);
       auto [gDirD, gDistD, gCurvD] = sigma_to_ball_grad(dA, rD, CD, g_sigma_d);
 
-      if (sA.is_fixed) { gDirS = Eigen::Vector3d::Zero(); gDistS = 0.0; gCurvS = 0.0; }
-      if (dA.is_fixed) { gDirD = Eigen::Vector3d::Zero(); gDistD = 0.0; gCurvD = 0.0; }
+      const double wS = sA.mobility;
+      const double wD = dA.mobility;
+      gDirS *= wS;  gDistS *= wS;  gCurvS *= wS;
+      gDirD *= wD;  gDistD *= wD;  gCurvD *= wD;
 
       double g2 = gDirS.squaredNorm() + gDistS*gDistS + gCurvS*gCurvS
                 + gDirD.squaredNorm() + gDistD*gDistD + gCurvD*gCurvD;

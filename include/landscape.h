@@ -22,10 +22,10 @@ struct Landscape
       std::string dest_set;
       std::vector<int> location; // sequence of ids to pass through before swapping to dest_set 
       int dest_ball_id; // -1 choses the first that works topologically
-      bool is_fixed {false};
+      double mobility {1.0}; // 0=fixed, 1=standard update weight
 
-      void initSphere(const Eigen::Vector3d &p, double rad, bool fix = false);
-      void initPlane(const Eigen::Vector3d &normal, double d, bool fix = false);
+      void initSphere(const Eigen::Vector3d &p, double rad, double mobility_value = 1.0);
+      void initPlane(const Eigen::Vector3d &normal, double d, double mobility_value = 1.0);
 
       // auto-set
       Set *parent_set; 
@@ -86,7 +86,7 @@ struct Landscape
   std::deque<Type> types;
 
   void printConnectivity(bool show_valid_destinations = false); // called after all addSetToTypes() are called
-  void applyConnectivity(int iterations = 4000);
+  void applyConnectivity(int iterations = 6000);
   void verifyConnectivity();  
   void calculateLeaves();
   void addSetsToTypes();  

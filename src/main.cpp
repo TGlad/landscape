@@ -11,11 +11,11 @@ int main()
   // decide which shapes to add:
   // trees:
   //voidTree(); clusterTree(); treeTree(); shellTree();
-  clusterTree();
   // sponges
 //  voidSponge(); clusterSponge(); spongeSponge(); shellSponge();
   // shells
-  shellShell();
+//  shellShell();
+  icosahedron();
 
   // misc
 //  cubeSpongeSponge();
@@ -24,12 +24,12 @@ int main()
 //  cube_sphere();
 //  cube_sphere2();
 //  cube_tree();
-  ball();
-  clusterTree2();
-  bush1();
-  bush2();
-  bush3();
-  ballToLandscape();
+//  ball();
+//  clusterTree2();
+//  bush1();
+//  bush2();
+//  bush3();
+//  ballToLandscape();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND
