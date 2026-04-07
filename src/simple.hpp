@@ -259,7 +259,7 @@ auto icosahedron = [&]()
     float ang2 = ang1 + pi/5.0;
 
     set.conn(0,1+i) = 2; // top fan
-    set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r); // top ring
+    set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r, 0.0); // top ring
     set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
     set.conn(1+i, 6+i) = 2; // zig
     set.conn(6+i, 1+ (i+1)%5) = 2; // zag
@@ -269,8 +269,8 @@ auto icosahedron = [&]()
   }
   set.balls[11].initSphere(Eigen::Vector3d(0,0,-1), r);
 
-//    set.balls[0].dest_set = "cluster-tree2";
-//    set.balls[0].dest_ball_id = 5;
+    set.balls[0].dest_set = "icos-test";
+    set.balls[0].dest_ball_id = 0;
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;
   set.render_volume_only = true; 
