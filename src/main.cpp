@@ -33,7 +33,7 @@ int main()
   icos_test();
   tree_test();
   hill_test();
-  hill_test2();
+  tree_hill_test();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND

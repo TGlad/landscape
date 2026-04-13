@@ -271,16 +271,11 @@ auto icosahedron = [&]()
 
   set.balls[0].dest_set = "tree-test";
   set.balls[0].dest_ball_id = 0;
-  set.balls[0].overlap_sets.resize(2);
-  set.balls[0].overlap_ids.resize(2, -1);
-  set.balls[0].overlap_sets[1] = "tree-hill-test";
-  set.balls[0].overlap_ids[1] = 1; // <-- index set_ball_id should not be an overlap destination
- // set.balls[1].location.push_back(1);
+  // set.balls[1].location.push_back(1);
   set.balls[1].dest_set = "hill-test";
   set.balls[1].dest_ball_id = 1;
 
-  set.ball_pair[0][1].set_set = "tree-hill-test";
-  set.ball_pair[]
+  set.overlaps.push_back(Landscape::Set::Overlap(0,1, "tree-hill-test", 1));
 
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});

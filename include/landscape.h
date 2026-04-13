@@ -24,10 +24,6 @@ struct Landscape
       int dest_ball_id; // -1 choses the first that works topologically
       double mobility {1.0}; // 0=fixed, 1=standard update weight
 
-      // extension to support unique dest sets for overlap areas
-      std::vector<std::string> overlap_sets; // indexed by... parent set id at the moment, though neighbour ID is more efficient on space 
-      std::vector<int> overlap_ids;
-
       void initSphere(const Eigen::Vector3d &p, double rad, double mobility_value = 1.0);
       void initPlane(const Eigen::Vector3d &normal, double d, double mobility_value = 1.0);
 
@@ -55,6 +51,15 @@ struct Landscape
     std::vector<Ball> balls;
     std::vector<Ball> leaf_balls; // used to represent set at leaf
     std::vector<int> leaf_ball_set;
+    struct Overlap // supports oriented spheres and oriented planes
+    {
+      Overlap(int ball0, int ball1, const std::string &destset, int dest_ball_id) : ball_0(ball0), ball_1(ball1), dest_set(destset), dest_ball_1_id(dest_ball_id) {}
+      int ball_0, ball_1;
+      std::string dest_set;
+      int dest_ball_1_id; // dest_ball_0_id is balls[ball_0].dest_id
+    };
+    std::vector<Overlap> overlaps;
+
 
     Adj conn; // connectivity. -1=kissing, 0 is disconnected
     bool leaf_union; // union if true, else intersection
