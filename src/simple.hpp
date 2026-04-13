@@ -245,9 +245,9 @@ auto cubeSpongeSponge = [&]()
 
 auto icosahedron = [&]()
 {
-  land.sets.push_back(Landscape::Set("shell-shell", 12));
+  land.sets.push_back(Landscape::Set("icosahedron", 12));
   Landscape::Set &set = land.sets.back();
-  set.colour = Eigen::Vector4d(0.7,0.6,0.5,1);
+  set.colour = Eigen::Vector4d(0.7,0.6,0.55,1);
   const double pi = 3.14159265;
 
   double h = std::sqrt(1.0 / 5.0);
@@ -269,8 +269,20 @@ auto icosahedron = [&]()
   }
   set.balls[11].initSphere(Eigen::Vector3d(0,0,-1), r);
 
-    set.balls[0].dest_set = "icos-test";
-    set.balls[0].dest_ball_id = 0;
+  set.balls[0].dest_set = "tree-test";
+  set.balls[0].dest_ball_id = 0;
+  set.balls[0].overlap_sets.resize(2);
+  set.balls[0].overlap_ids.resize(2, -1);
+  set.balls[0].overlap_sets[1] = "tree-hill-test";
+  set.balls[0].overlap_ids[1] = 1; // <-- index set_ball_id should not be an overlap destination
+ // set.balls[1].location.push_back(1);
+  set.balls[1].dest_set = "hill-test";
+  set.balls[1].dest_ball_id = 1;
+
+  set.ball_pair[0][1].set_set = "tree-hill-test";
+  set.ball_pair[]
+
+
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;
   set.render_volume_only = true; 

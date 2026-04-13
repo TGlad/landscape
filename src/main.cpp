@@ -31,6 +31,9 @@ int main()
 //  bush3();
 //  ballToLandscape();
   icos_test();
+  tree_test();
+  hill_test();
+  hill_test2();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND

@@ -24,6 +24,10 @@ struct Landscape
       int dest_ball_id; // -1 choses the first that works topologically
       double mobility {1.0}; // 0=fixed, 1=standard update weight
 
+      // extension to support unique dest sets for overlap areas
+      std::vector<std::string> overlap_sets; // indexed by... parent set id at the moment, though neighbour ID is more efficient on space 
+      std::vector<int> overlap_ids;
+
       void initSphere(const Eigen::Vector3d &p, double rad, double mobility_value = 1.0);
       void initPlane(const Eigen::Vector3d &normal, double d, double mobility_value = 1.0);
 
