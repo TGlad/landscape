@@ -389,53 +389,6 @@ auto ballToLandscape = [&]()
   set.render_volume_only = true; 
 };
 
-auto icos_test = [&]()
-{
-  land.sets.push_back(Landscape::Set("icos-test", 12));
-  Landscape::Set &set = land.sets.back();
-  set.colour = Eigen::Vector4d(0.8,0.75,0.65,1);
-  const double pi = 3.14159265;
-
-  double h = std::sqrt(1.0 / 5.0);
-  double r = std::sqrt(1.0 - h); // 0.743
-  double peak = 1.0; // 1 is normal
-  double mid = 1.4; // 1 is normal
-  double ridge = std::sqrt(1.7);
-  double offset = std::sqrt(1.0);
-  double rmid = std::sqrt(mid);
-  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r);
-  for (int i = 0; i<5; i++)
-  {
-    float ang1 = (double)i * 2.0*pi/5.0;
-    float ang2 = ang1 + pi/5.0;
-
-    set.conn(0,1+i) = 2; // top fan
-    set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r); // top ring
-    set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
-    set.conn(1+i, 6+i) = 2; // zig
-    set.conn(6+i, 1+ (i+1)%5) = 2; // zag
-    double scale = rmid;
-    if (i == 1 || i== 4)
-      scale *= ridge;
-    else
-      scale /= ridge;
-    if(i==2 || i==3)
-      scale *= offset;
-    else
-      scale /= offset;
-    set.balls[6+i].initSphere(scale*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2),-scale), r); // bottom ring
-    set.conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
-    set.conn(6+i,11) = 2; // bottom fan
-  }
-  set.balls[11].initSphere(Eigen::Vector3d(0,0,-peak), offset*offset*ridge*ridge*peak*r);
-
-//    set.balls[0].dest_set = "cluster-tree2";
-//    set.balls[0].dest_ball_id = 5;
-  set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
-  set.leaf_union = false;
-  set.render_volume_only = true; 
-};
-
 auto tree_test = [&]()
 {
   land.sets.push_back(Landscape::Set("tree-test", 12));
@@ -445,9 +398,9 @@ auto tree_test = [&]()
 
   double h = std::sqrt(1.0 / 5.0);
   double r = std::sqrt(1.0 - h); // 0.743
-  double peak = 1.8; // 1 is normal
+  double peak = 1.0; // 1 is normal
   double mid = 1.2; // 1 is normal
-  double ridge = std::sqrt(1.7);
+  double ridge = std::sqrt(1.5);
   double offset = std::sqrt(1.0);
   double rmid = std::sqrt(mid);
   set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r);
@@ -521,7 +474,7 @@ auto tree_hill_test = [&]()
 {
   land.sets.push_back(Landscape::Set("tree-hill-test", 12));
   Landscape::Set &set = land.sets.back();
-  set.colour = Eigen::Vector4d(0.85,0.45,0.25,1);
+  set.colour = Eigen::Vector4d(0.95,0.15,0.05,1);
   const double pi = 3.14159265;
 
   double h = std::sqrt(1.0 / 5.0);

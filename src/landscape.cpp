@@ -8,6 +8,8 @@ static const double pi = std::acos(-1.0);
 
 #include <iostream>
 #include <vector>
+#include <set>
+#include <tuple>
 #include <Eigen/Dense>
 
 void Landscape::addSetToTypes(Set &set)
@@ -546,6 +548,11 @@ void Landscape::applyConnectivity(int iterations)
     }
   }
 
+  // Resolve overlap destination sets by name and prepare special handling:
+  // - add additional overlap-driven intra constraints in canonical neighbour order
+  // - force overlap anchor balls to use identity Möbius (skip mobius_pairs)
+  std::set<Set::Ball*> overlap_identity_balls;
+
   // ── Step 2: build all constraint pairs ──────────────────────────────────
   //
   // Each entry is one scalar constraint.  We use a tagged union approach:
@@ -556,12 +563,94 @@ void Landscape::applyConnectivity(int iterations)
   // Within-set pairs: {set index, ball i, ball j}
   struct IntraPair { int si, i, j; };
   std::vector<IntraPair> intra_pairs;
+  std::set<std::tuple<int,int,int>> intra_pair_keys;
+  auto addIntraPair = [&](int si, int a, int b) {
+    if (si < 0 || si >= (int)sets.size()) return;
+    if (a < 0 || b < 0 || a >= (int)sets[si].balls.size() || b >= (int)sets[si].balls.size()) return;
+    int i = std::max(a, b), j = std::min(a, b);
+    auto key = std::make_tuple(si, i, j);
+    if (intra_pair_keys.insert(key).second)
+      intra_pairs.push_back({si, i, j});
+  };
   for (int si = 0; si < (int)sets.size(); si++)
   {
     int n = (int)sets[si].balls.size();
     for (int i = 0; i < n; i++)
       for (int j = 0; j < i; j++)
-        intra_pairs.push_back({si, i, j});
+        addIntraPair(si, i, j);
+  }
+
+  // Helpers used by overlap constraint wiring.
+  auto setIndexByName = [&](const std::string &name) -> int {
+    for (int si = 0; si < (int)sets.size(); si++)
+      if (sets[si].name == name) return si;
+    return -1;
+  };
+
+  for (int si = 0; si < (int)sets.size(); si++)
+  {
+    Set &src_set = sets[si];
+    for (const auto &ov : src_set.overlaps)
+    {
+      if (ov.ball_0 < 0 || ov.ball_0 >= (int)src_set.balls.size()
+          || ov.ball_1 < 0 || ov.ball_1 >= (int)src_set.balls.size())
+      {
+        std::cerr << "[applyConnectivity] overlap has invalid source ball indices in set '"
+                  << src_set.name << "'\n";
+        continue;
+      }
+
+      int dsi = setIndexByName(ov.dest_set);
+      if (dsi < 0)
+      {
+        std::cerr << "[applyConnectivity] overlap dest_set '" << ov.dest_set
+                  << "' not found for set '" << src_set.name << "'\n";
+        continue;
+      }
+      Set &dst_set = sets[dsi];
+
+      Set::Ball &src0 = src_set.balls[ov.ball_0];
+      Set::Ball &src1 = src_set.balls[ov.ball_1];
+      overlap_identity_balls.insert(&src0);
+      overlap_identity_balls.insert(&src1);
+      src0.mobius = Set::Ball::Mobius();
+      src1.mobius = Set::Ball::Mobius();
+
+      int dst0_i = src0.dest_ball_id;
+      if (dst0_i < 0 || dst0_i >= (int)dst_set.balls.size())
+      {
+        std::cerr << "[applyConnectivity] overlap ball_0 uses invalid dest_ball_id in set '"
+                  << src_set.name << "' for overlap dest_set '" << ov.dest_set << "'\n";
+        dst0_i = -1;
+      }
+
+      int dst1_i = ov.dest_ball_1_id;
+      if (dst1_i < 0 || dst1_i >= (int)dst_set.balls.size())
+      {
+        std::cerr << "[applyConnectivity] overlap dest_ball_1_id out of range for set '"
+                  << dst_set.name << "'\n";
+        continue;
+      }
+
+      auto addMappedNeighbourPairs = [&](int src_anchor_i, int dst_anchor_i) {
+        if (dst_anchor_i < 0 || dst_anchor_i >= (int)dst_set.balls.size()) return;
+        const Set::Ball &sa = src_set.balls[src_anchor_i];
+        const Set::Ball &da = dst_set.balls[dst_anchor_i];
+        int m = (int)std::min(sa.type_to_set.size(), da.type_to_set.size());
+        for (int ti = 1; ti < m; ti++)
+        {
+          int src_n = sa.type_to_set[ti];
+          int dst_n = da.type_to_set[ti];
+
+          // Additional constraints for overlap regions (canonical lexical mapping).
+          addIntraPair(si, src_anchor_i, src_n);
+          addIntraPair(dsi, dst_anchor_i, dst_n);
+        }
+      };
+
+      addMappedNeighbourPairs(ov.ball_0, dst0_i);
+      addMappedNeighbourPairs(ov.ball_1, dst1_i);
+    }
   }
 
   // Cross-set Möbius pairs: for each ball B with a non-self dest_ball D,
@@ -582,6 +671,11 @@ void Landscape::applyConnectivity(int iterations)
   {
     for (auto &ball : set.balls)
     {
+      if (overlap_identity_balls.count(&ball))
+      {
+        ball.mobius = Set::Ball::Mobius();
+        continue;
+      }
       if (ball.dest_ball == nullptr || ball.dest_ball == &ball) continue;
       mobius_links.push_back({&ball, ball.dest_ball});
       int m = (int)std::min(ball.type_to_set.size(), ball.dest_ball->type_to_set.size());

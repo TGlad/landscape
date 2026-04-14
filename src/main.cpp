@@ -30,7 +30,6 @@ int main()
 //  bush2();
 //  bush3();
 //  ballToLandscape();
-  icos_test();
   tree_test();
   hill_test();
   tree_hill_test();

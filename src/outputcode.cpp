@@ -68,6 +68,12 @@ void Landscape::outputCode(const std::string &filename) const
     return -1;
   };
 
+  auto setIndexByName = [&](const std::string &name) -> int {
+    for (int si = 0; si < num_sets; si++)
+      if (sets[si].name == name) return si;
+    return -1;
+  };
+
   out << std::fixed << std::setprecision(7);
 
   // ── Ball struct ──────────────────────────────────────────────────────────
@@ -78,6 +84,11 @@ void Landscape::outputCode(const std::string &filename) const
       << "    int   dest_set;   // flat index into SETS[];  -1 = reflexive\n"
       << "    int   dest_ball;  // flat index into BALLS[]; -1 = none\n"
       << "};\n\n";
+    out << "struct Overlap {\n"
+        << "    int ball_0, ball_1;\n"
+        << "    int dest_set;\n"
+        << "    int dest_ball_1; // dest_ball_0 is same as BALLS[ball_0].dest_ball \n"
+        << "};\n\n";
 
   // ── Set offset table ─────────────────────────────────────────────────────
   // SET_OFFSET[i] = first index in BALLS[] for set i
@@ -91,6 +102,15 @@ void Landscape::outputCode(const std::string &filename) const
   for (int si = 0; si < num_sets; si++)
     out << (int)sets[si].balls.size() << (si < num_sets - 1 ? ", " : "");
   out << ");\n";
+    std::vector<int> overlap_offsets(num_sets + 1, 0);
+    for (int si = 0; si < num_sets; si++)
+      overlap_offsets[si + 1] = overlap_offsets[si] + (int)sets[si].overlaps.size();
+    int total_overlaps = overlap_offsets[num_sets];
+
+    out << "const int OVERLAP_OFFSET[" << (num_sets + 1) << "] = int[" << (num_sets + 1) << "](";
+    for (int si = 0; si <= num_sets; si++)
+      out << overlap_offsets[si] << (si < num_sets ? ", " : "");
+    out << ");\n";
   out << "const vec4 SET_COLOUR[" << num_sets << "] = vec4[" << num_sets << "](";
   for (int si = 0; si < num_sets; si++)
     out << "vec4(" << sets[si].colour[0] << ", " << sets[si].colour[1] << ", " << sets[si].colour[2] << ", " << sets[si].colour[3] << ")" << (si < num_sets - 1 ? ", " : "");
@@ -123,6 +143,40 @@ void Landscape::outputCode(const std::string &filename) const
     out << locs[si] << (si < locs.size()-1 ? ", " : "");
   out << ");\n";
   out << "const int MAX_BALLS_PER_SET = " << max_balls_per_set << ";\n\n";
+    int overlap_storage = std::max(1, total_overlaps);
+    out << "const int NUM_OVERLAPS = " << total_overlaps << ";\n";
+    out << "const Overlap OVERLAPS[" << overlap_storage << "] = Overlap[" << overlap_storage << "](\n";
+    if (total_overlaps == 0)
+    {
+      out << "    Overlap(-1, -1, -1, -1)\n";
+    }
+    else
+    {
+      int flat_oi = 0;
+      for (int si = 0; si < num_sets; si++)
+      {
+        const Set &s = sets[si];
+        int n = (int)s.overlaps.size();
+        if (n == 0) continue;
+        out << "    // set " << si << ": " << s.name << "\n";
+        for (int oi = 0; oi < n; oi++, flat_oi++)
+        {
+          const Set::Overlap &ov = s.overlaps[oi];
+
+          int ball_0 = (ov.ball_0 >= 0 && ov.ball_0 < (int)s.balls.size()) ? offsets[si] + ov.ball_0 : -1;
+          int ball_1 = (ov.ball_1 >= 0 && ov.ball_1 < (int)s.balls.size()) ? offsets[si] + ov.ball_1 : -1;
+
+          int dest_si = setIndexByName(ov.dest_set);
+          int dest_ball_1 = -1;
+          if (dest_si >= 0 && ov.dest_ball_1_id >= 0 && ov.dest_ball_1_id < (int)sets[dest_si].balls.size())
+            dest_ball_1 = offsets[dest_si] + ov.dest_ball_1_id;
+
+          out << "    Overlap(" << ball_0 << ", " << ball_1 << ", " << dest_si << ", " << dest_ball_1 << ")"
+              << (flat_oi < total_overlaps - 1 ? "," : "") << "\n";
+        }
+      }
+    }
+    out << ");\n\n";
 
   // ── Flat ball array ───────────────────────────────────────────────────────
   out << "const int NUM_BALLS = " << total_balls << ";\n";
