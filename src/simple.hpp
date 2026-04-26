@@ -252,7 +252,7 @@ auto icosahedron = [&]()
 
   double h = std::sqrt(1.0 / 5.0);
   double r = std::sqrt(1.0 - h); // 0.743
-  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r);
+  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
   for (int i = 0; i<5; i++)
   {
     float ang1 = (double)i * 2.0*pi/5.0;
@@ -276,7 +276,7 @@ auto icosahedron = [&]()
   set.balls[1].dest_ball_id = 1;
 
   set.overlaps.push_back(Landscape::Set::Overlap(0,1, "tree-hill-test", 1));
-
+//  set.overlaps.push_back(Landscape::Set::Overlap(6,1, "hill-icos-test", 1));
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;

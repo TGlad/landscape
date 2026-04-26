@@ -27,6 +27,8 @@ struct Landscape
       void initSphere(const Eigen::Vector3d &p, double rad, double mobility_value = 1.0);
       void initPlane(const Eigen::Vector3d &normal, double d, double mobility_value = 1.0);
 
+      inline double radius() const { return 1.0/curvature; }
+      inline Eigen::Vector3d centre() const { return dir * (dist + radius());}
       // auto-set
       Set *parent_set; 
       Type *type;
@@ -85,6 +87,16 @@ struct Landscape
     Set &operator=(Set &&o);
   };
   std::deque<Set> sets;
+  const Set &set(const std::string &set_name)
+  {
+    for (const auto &set: sets)
+    {
+      if (set.name == set_name)
+        return set;
+    }
+    Set set("dummy", 0);
+    return set;
+  }
 
   struct Type
   {

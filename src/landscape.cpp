@@ -548,10 +548,16 @@ void Landscape::applyConnectivity(int iterations)
     }
   }
 
-  // Resolve overlap destination sets by name and prepare special handling:
-  // - add additional overlap-driven intra constraints in canonical neighbour order
-  // - force overlap anchor balls to use identity Möbius (skip mobius_pairs)
-  std::set<Set::Ball*> overlap_identity_balls;
+  // Resolve overlap destination sets and collect additional overlap-driven
+  // src→dst Möbius links. For overlap (a,b), with
+  //   A = balls[a].dest_set, B = balls[b].dest_set,
+  // use cross-links:
+  //   a -> B[a],  b -> A[b]
+  // and neighbour links (same-index assumption):
+  //   n neighbour of a (n != b) -> B[n]
+  //   n neighbour of b (n != a) -> A[n]
+  // If n is neighbour of both a and b, both links are added (dedup later).
+  std::vector<std::pair<Set::Ball*, Set::Ball*>> overlap_links;
 
   // ── Step 2: build all constraint pairs ──────────────────────────────────
   //
@@ -600,56 +606,85 @@ void Landscape::applyConnectivity(int iterations)
         continue;
       }
 
-      int dsi = setIndexByName(ov.dest_set);
-      if (dsi < 0)
+      Set::Ball &parent0 = src_set.balls[ov.ball_0];
+      Set::Ball &parent1 = src_set.balls[ov.ball_1];
+
+      int dsiO = setIndexByName(ov.dest_set);      // overlap set (source of overlap links)
+      // If a parent ball has no destination set, fall back to the parent/source set.
+      int dsiA = parent0.dest_set.empty() ? si : setIndexByName(parent0.dest_set);
+      int dsiB = parent1.dest_set.empty() ? si : setIndexByName(parent1.dest_set);
+      if (dsiO < 0)
       {
-        std::cerr << "[applyConnectivity] overlap dest_set '" << ov.dest_set
-                  << "' not found for set '" << src_set.name << "'\n";
+        std::cerr << "[applyConnectivity] overlap source set '" << ov.dest_set
+                  << "' not found for parent set '" << src_set.name << "'\n";
         continue;
       }
-      Set &dst_set = sets[dsi];
-
-      Set::Ball &src0 = src_set.balls[ov.ball_0];
-      Set::Ball &src1 = src_set.balls[ov.ball_1];
-      overlap_identity_balls.insert(&src0);
-      overlap_identity_balls.insert(&src1);
-      src0.mobius = Set::Ball::Mobius();
-      src1.mobius = Set::Ball::Mobius();
-
-      int dst0_i = src0.dest_ball_id;
-      if (dst0_i < 0 || dst0_i >= (int)dst_set.balls.size())
+      if (dsiA < 0 || dsiB < 0)
       {
-        std::cerr << "[applyConnectivity] overlap ball_0 uses invalid dest_ball_id in set '"
-                  << src_set.name << "' for overlap dest_set '" << ov.dest_set << "'\n";
-        dst0_i = -1;
+        std::cerr << "[applyConnectivity] overlap needs valid destination (or source-fallback) sets on both source balls in set '"
+                  << src_set.name << "'\n";
+        continue;
       }
+      Set &ov_set = sets[dsiO];
+      Set &dstA = sets[dsiA];
+      Set &dstB = sets[dsiB];
 
-      int dst1_i = ov.dest_ball_1_id;
-      if (dst1_i < 0 || dst1_i >= (int)dst_set.balls.size())
+      int a = ov.ball_0;
+      int b = ov.ball_1;
+
+      if (a < 0 || a >= (int)ov_set.balls.size() || b < 0 || b >= (int)ov_set.balls.size())
       {
-        std::cerr << "[applyConnectivity] overlap dest_ball_1_id out of range for set '"
-                  << dst_set.name << "'\n";
+        std::cerr << "[applyConnectivity] overlap indices out of range for overlap set '"
+                  << ov_set.name << "'\n";
         continue;
       }
 
-      auto addMappedNeighbourPairs = [&](int src_anchor_i, int dst_anchor_i) {
-        if (dst_anchor_i < 0 || dst_anchor_i >= (int)dst_set.balls.size()) return;
-        const Set::Ball &sa = src_set.balls[src_anchor_i];
-        const Set::Ball &da = dst_set.balls[dst_anchor_i];
-        int m = (int)std::min(sa.type_to_set.size(), da.type_to_set.size());
-        for (int ti = 1; ti < m; ti++)
+      if (a < 0 || a >= (int)dstB.balls.size())
+      {
+        std::cerr << "[applyConnectivity] overlap cross-link a->B out of range for set '"
+                  << dstB.name << "'\n";
+        continue;
+      }
+      if (b < 0 || b >= (int)dstA.balls.size())
+      {
+        std::cerr << "[applyConnectivity] overlap cross-link b->A out of range for set '"
+                  << dstA.name << "'\n";
+        continue;
+      }
+
+      // Cross links: a -> B[a], b -> A[b].
+      overlap_links.push_back({&ov_set.balls[a], &dstB.balls[a]});
+      overlap_links.push_back({&ov_set.balls[b], &dstA.balls[b]});
+
+      // Rule 3: neighbours of a map to corresponding neighbours of B[a],
+      // under current aligned-index assumption (n -> B[n]).
+      for (int n = 0; n < (int)ov_set.balls.size(); n++)
+      {
+        if (n == b) continue; // handled by anchor link a -> B[a]
+        if (ov_set.conn(a, n) > 0)
         {
-          int src_n = sa.type_to_set[ti];
-          int dst_n = da.type_to_set[ti];
-
-          // Additional constraints for overlap regions (canonical lexical mapping).
-          addIntraPair(si, src_anchor_i, src_n);
-          addIntraPair(dsi, dst_anchor_i, dst_n);
+          if (n >= 0 && n < (int)dstB.balls.size())
+            overlap_links.push_back({&ov_set.balls[n], &dstB.balls[n]});
+          else
+            std::cerr << "[applyConnectivity] overlap neighbour index " << n
+                      << " out of range for destination set '" << dstB.name << "'\n";
         }
-      };
+      }
 
-      addMappedNeighbourPairs(ov.ball_0, dst0_i);
-      addMappedNeighbourPairs(ov.ball_1, dst1_i);
+      // Rule 4: neighbours of b map to corresponding neighbours of A[b],
+      // under current aligned-index assumption (n -> A[n]).
+      for (int n = 0; n < (int)ov_set.balls.size(); n++)
+      {
+        if (n == a) continue; // handled by anchor link b -> A[b]
+        if (ov_set.conn(b, n) > 0)
+        {
+          if (n >= 0 && n < (int)dstA.balls.size())
+            overlap_links.push_back({&ov_set.balls[n], &dstA.balls[n]});
+          else
+            std::cerr << "[applyConnectivity] overlap neighbour index " << n
+                      << " out of range for destination set '" << dstA.name << "'\n";
+        }
+      }
     }
   }
 
@@ -666,26 +701,51 @@ void Landscape::applyConnectivity(int iterations)
   // Deduplicated list of unique src→dst links for M recomputation.
   struct MobiusLink { Set::Ball *src; Set::Ball *dst; };
   std::vector<MobiusLink> mobius_links;
+  std::set<std::tuple<Set::Ball*, Set::Ball*>> mobius_link_keys;
+  auto addMobiusLink = [&](Set::Ball *src, Set::Ball *dst) {
+    if (src == nullptr || dst == nullptr || src == dst) return;
+    auto key = std::make_tuple(src, dst);
+    if (mobius_link_keys.insert(key).second)
+      mobius_links.push_back({src, dst});
+  };
 
   for (auto &set : sets)
   {
     for (auto &ball : set.balls)
     {
-      if (overlap_identity_balls.count(&ball))
-      {
-        ball.mobius = Set::Ball::Mobius();
-        continue;
-      }
       if (ball.dest_ball == nullptr || ball.dest_ball == &ball) continue;
-      mobius_links.push_back({&ball, ball.dest_ball});
-      int m = (int)std::min(ball.type_to_set.size(), ball.dest_ball->type_to_set.size());
-      for (int ti = 0; ti < m; ti++)
-        mobius_pairs.push_back({&ball, ball.dest_ball, ti});
+      addMobiusLink(&ball, ball.dest_ball);
     }
   }
 
+  for (auto &lk : overlap_links)
+    addMobiusLink(lk.first, lk.second);
+
+  // Build per-neighbour constraints from all (regular + overlap) links.
+  std::set<std::tuple<Set::Ball*, Set::Ball*, int>> mobius_pair_keys;
+  for (auto &lk : mobius_links)
+  {
+    Set::Ball *src = lk.src;
+    Set::Ball *dst = lk.dst;
+    int m = (int)std::min(src->type_to_set.size(), dst->type_to_set.size());
+    for (int ti = 0; ti < m; ti++)
+    {
+      auto key = std::make_tuple(src, dst, ti);
+      if (mobius_pair_keys.insert(key).second)
+        mobius_pairs.push_back({src, dst, ti});
+    }
+  }
+
+  // If false: keep cross-set constraints, but fix every link transform to identity.
+  const bool fit_mobius_transform = false;
+  if (!fit_mobius_transform)
+  {
+    for (auto &lk : mobius_links)
+      lk.src->mobius = Set::Ball::Mobius();
+  }
+
   std::mt19937 rng(42);
-  bool warmup_done = false;
+  bool warmup_done = !fit_mobius_transform;
 
   // ── Step 3: iterate ──────────────────────────────────────────────────────
   // The first `warmup_iters` iterations run intra constraints only.  Once the
@@ -697,10 +757,11 @@ void Landscape::applyConnectivity(int iterations)
   // M→I, which then tightens the src≈dst constraint further — ending with
   // both sets at the same position rather than a proper Möbius image of each.
   const int warmup_iters = 1500;
-  for (int it = 0; it < iterations + warmup_iters; it++)
+  const int effective_warmup_iters = fit_mobius_transform ? warmup_iters : 0;
+  for (int it = 0; it < iterations + effective_warmup_iters; it++)
   {
     // After the warm-up phase, compute M once and start applying mobius pairs.
-    if (!warmup_done && it >= warmup_iters)
+    if (fit_mobius_transform && !warmup_done && it >= warmup_iters)
     {
       for (auto &lk : mobius_links)
         computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true);
