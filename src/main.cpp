@@ -55,7 +55,7 @@ int main()
   auto &s4 = land.set("tree-hill-test");
   for (auto &id: ids)
   {
-    std::cout << id << " centres: " << s1.balls[id].centre().transpose() << " : " << s2.balls[id].centre().transpose() << " : " << s3.balls[id].centre().transpose() << " : " << s4.balls[id].centre().transpose() << ", radii: " << s1.balls[id].radius() << " : " << s2.balls[id].radius() << " : " << s3.balls[id].radius() << " : " << s4.balls[id].radius() << std::endl;
+    std::cout << id << " centres: " << s1.balls[id].centre.transpose() << " : " << s2.balls[id].centre.transpose() << " : " << s3.balls[id].centre.transpose() << " : " << s4.balls[id].centre.transpose() << ", radii: " << s1.balls[id].radius << " : " << s2.balls[id].radius << " : " << s3.balls[id].radius << " : " << s4.balls[id].radius << std::endl;
   }
   return 0;
 }

@@ -14,11 +14,10 @@ struct Landscape
     Set(const std::string &name, int num_balls);
     std::string name;
     Eigen::Vector4d colour {Eigen::Vector4d(1,1,1,1)};
-    struct Ball // supports oriented spheres and oriented planes
+    struct Ball // sphere parameterisation
     {
-      Eigen::Vector3d dir;
-      double dist;
-      double curvature;
+      Eigen::Vector3d centre;
+      double radius;
       std::string dest_set;
       std::vector<int> location; // sequence of ids to pass through before swapping to dest_set 
       int dest_ball_id; // -1 choses the first that works topologically
@@ -27,8 +26,6 @@ struct Landscape
       void initSphere(const Eigen::Vector3d &p, double rad, double mobility_value = 1.0);
       void initPlane(const Eigen::Vector3d &normal, double d, double mobility_value = 1.0);
 
-      inline double radius() const { return 1.0/curvature; }
-      inline Eigen::Vector3d centre() const { return dir * (dist + radius());}
       // auto-set
       Set *parent_set; 
       Type *type;

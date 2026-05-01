@@ -5,18 +5,27 @@
 #include <random>
 #include <algorithm>
 
+static double clampSignedRadius(double r)
+{
+  constexpr double eps = 1e-6;
+  if (std::abs(r) < eps)
+    return (r < 0.0) ? -eps : eps;
+  return r;
+}
+
 void Landscape::Set::Ball::initSphere(const Eigen::Vector3d &p, double rad, double mobility_value)
 {
-  dir = p.normalized();
-  dist = p.norm() - rad;
-  curvature = 1.0/rad;
+  centre = p;
+  radius = clampSignedRadius(rad);
   mobility = mobility_value;
 }
 void Landscape::Set::Ball::initPlane(const Eigen::Vector3d &normal, double d, double mobility_value)
 {
-  dir = normal.normalized();
-  dist = d;
-  curvature = 0.0;
+  // Planes are represented as very-large-radius spheres.
+  const double R = 1e6;
+  Eigen::Vector3d n = normal.normalized();
+  centre = n * (d + R);
+  radius = R;
   mobility = mobility_value;
 }
 
@@ -47,6 +56,7 @@ Eigen::Vector3d Landscape::Set::Ball::Mobius::transformDecomposed(const Eigen::V
 std::pair<Eigen::Vector3d,double> Landscape::Set::Ball::Mobius::transformSphere(
     const Eigen::Vector3d &c, double r) const
 {
+  r = clampSignedRadius(r);
   double c2 = c.squaredNorm();
   Eigen::Matrix<double,5,1> sv;
   sv << c.x(), c.y(), c.z(),

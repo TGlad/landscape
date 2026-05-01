@@ -114,8 +114,7 @@ void Landscape::Set::addLeafBall(int i, int j, int k, double scale)
 void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
 {
   // A sphere X orthogonal to sphere A satisfies |Cx-Ca|² = rx²+ra².
-  // Expanding with w = |Cx|²-rx²:  2*Ca·Cx - w = |Ca|²-ra²
-  // For a plane (curvature=0), 90° intersection means the center lies on the plane: n·Cx = dist
+  // Expanding with w = |Cx|²-rx²:  2*Ca·Cx - w = |Ca|²-ra².
   // Four balls → 4×4 linear system in (Cx.x, Cx.y, Cx.z, w).
 
   const std::array<int,4> idx = {i, j, k, l};
@@ -125,25 +124,13 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
   for (int row = 0; row < 4; row++)
   {
     const Ball &b = balls[idx[row]];
-    if (std::abs(b.curvature) > 1e-6)
-    {
-      double r = 1.0 / b.curvature;
-      Eigen::Vector3d C = b.dir * (b.dist + r);
-      M(row, 0) = 2.0 * C.x();
-      M(row, 1) = 2.0 * C.y();
-      M(row, 2) = 2.0 * C.z();
-      M(row, 3) = -1.0;
-      rhs(row) = C.squaredNorm() - r * r;
-    }
-    else
-    {
-      // Plane: center of orthogonal sphere lies on the plane → n·Cx = dist
-      M(row, 0) = b.dir.x();
-      M(row, 1) = b.dir.y();
-      M(row, 2) = b.dir.z();
-      M(row, 3) = 0.0;
-      rhs(row) = b.dist;
-    }
+    const double r = b.radius;
+    const Eigen::Vector3d &C = b.centre;
+    M(row, 0) = 2.0 * C.x();
+    M(row, 1) = 2.0 * C.y();
+    M(row, 2) = 2.0 * C.z();
+    M(row, 3) = -1.0;
+    rhs(row) = C.squaredNorm() - r * r;
   }
 
   Eigen::Vector4d sol = M.fullPivLu().solve(rhs);
@@ -160,11 +147,8 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
   double rx = std::sqrt(rx2);
   Ball leaf;
   leaf.parent_set = this;
-  leaf.dir        = Cx.normalized();
-  if (leaf.dir == Eigen::Vector3d(0,0,0))
-    leaf.dir[2] = 1.0;
-  leaf.dist       = Cx.norm() - rx;
-  leaf.curvature  = 1.0 / rx;
+  leaf.centre     = Cx;
+  leaf.radius     = rx;
   leaf_balls.push_back(leaf);
 
   // ── Validation: check 90° intersection with each of the 4 balls ──────────
@@ -172,21 +156,12 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, int l)
   for (int row = 0; row < 4; row++)
   {
     const Ball &b = balls[idx[row]];
-    double err;
-    if (b.curvature != 0.0)
-    {
-      double rb = 1.0 / b.curvature;
-      Eigen::Vector3d Cb = b.dir * (b.dist + rb);
-      double d2 = (Cx - Cb).squaredNorm();
-      // orthogonality: |Cx-Cb|² == rx²+rb²
-      double target = rx2 + rb * rb;
-      err = d2 - target;
-    }
-    else
-    {
-      // plane orthogonality: n·Cx == dist
-      err = b.dir.dot(Cx) - b.dist;
-    }
+    double rb = b.radius;
+    Eigen::Vector3d Cb = b.centre;
+    double d2 = (Cx - Cb).squaredNorm();
+    // orthogonality: |Cx-Cb|² == rx²+rb²
+    double target = rx2 + rb * rb;
+    double err = d2 - target;
     bool ball_ok = std::abs(err) < 1e-6;
     if (!ball_ok)
       std::cout << "[addLeafBall] ball " << idx[row]
@@ -331,9 +306,7 @@ void Landscape::Set::calculateLeafBalls()
           for (int c = 0; c<3; c++)
           {
             const Ball &b = balls[tri[c]];
-            double r = 1.0 / b.curvature;
-            Eigen::Vector3d v = b.dir * (b.dist + r);
-            max_dist = std::max(max_dist, v.norm() + r);  
+            max_dist = std::max(max_dist, b.centre.norm() + b.radius);  
           }
           tris.push_back(tri);
         }
@@ -347,14 +320,13 @@ void Landscape::Set::calculateLeafBalls()
     for (int i = 0; i<3; i++)
     {
       const Ball &b = balls[tri[i]];
-      double r = 1.0 / b.curvature;
-      vs[i] = b.dir * (b.dist + r);  
+      vs[i] = b.centre;  
     }
     for (int i = leaf_balls.size()-1; i>=0; i--)
     {
       const Ball &b = leaf_balls[i];
-      double r = 1.0 / b.curvature;
-      Eigen::Vector3d c = b.dir * (b.dist + r);
+      double r = b.radius;
+      Eigen::Vector3d c = b.centre;
       float eps = 0.0001;
       if (triIntersectsSphere2(vs, c, r, eps) || c.norm() > max_dist) // max dist is a hack, need better option
       {
@@ -371,15 +343,14 @@ void Landscape::Set::calculateLeafBalls()
     for (int i = 0; i<3; i++)
     {
       const Ball &b = balls[tri[i]];
-      double r = 1.0 / b.curvature;
-      vs[i] = b.dir * (b.dist + r);  
+      vs[i] = b.centre;  
     }
     bool any_intersect_plane = false;
     for (int i = leaf_balls.size()-1; i>=0; i--)
     {
       const Ball &b = leaf_balls[i];
-      double r = 1.0 / b.curvature;
-      Eigen::Vector3d c = b.dir * (b.dist + r);
+      double r = b.radius;
+      Eigen::Vector3d c = b.centre;
       double eps = 0.0001;
       if (triIntersectsSphere2(vs, c, r, -eps))
         any_intersect_plane = true;
@@ -428,10 +399,8 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, double scale)
   for (int row = 0; row < 3; row++)
   {
     const Ball &b = balls[idx[row]];
-    if (b.curvature == 0.0)
-      std::cerr << "Error: can't use this leafBall method on planes" << std::endl;
-    cs[row] = b.dir * (b.dist + 1.0 / b.curvature);
-    rs[row] = 1.0/b.curvature;
+    cs[row] = b.centre;
+    rs[row] = b.radius;
   }
 
   Eigen::Vector3d v1 = cs[1] - cs[0];
@@ -448,9 +417,8 @@ void Landscape::Set::calculateLeafBall(int i, int j, int k, double scale)
 
   Ball leaf;
   leaf.parent_set = this;
-  leaf.dir        = centre.normalized();
-  leaf.dist       = centre.norm() - radius;
-  leaf.curvature  = 1.0 / radius;
+  leaf.centre     = centre;
+  leaf.radius     = radius;
   leaf_balls.push_back(leaf);
 }
 
@@ -473,31 +441,11 @@ bool Landscape::Set::verifyConnectivity(double tol) const
       if (order == 0)
       {
         // Separation: check gap >= k
-        if (bi.curvature != 0.0 && bj.curvature != 0.0)
-        {
-          double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
-          Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
-          Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
-          actual = (Ci - Cj).norm();
-          target = ri + rj; // k=0; gap = actual - target >= 0
-          label = "gap";
-          ok = (actual - target) >= -tol;
-        }
-        else if (bi.curvature != 0.0 || bj.curvature != 0.0)
-        {
-          const Ball &sphere = (bi.curvature != 0.0) ? bi : bj;
-          const Ball &plane  = (bi.curvature != 0.0) ? bj : bi;
-          double r = 1.0 / sphere.curvature;
-          Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
-          actual = plane.dir.dot(C) - plane.dist;
-          target = r; // sphere centre must be at least r beyond the plane
-          label = "gap";
-          ok = (actual - target) >= -tol;
-        }
-        else
-        {
-          continue; // plane-plane separation not meaningful
-        }
+        double ri = bi.radius, rj = bj.radius;
+        actual = (bi.centre - bj.centre).norm();
+        target = ri + rj; // k=0; gap = actual - target >= 0
+        label = "gap";
+        ok = (actual - target) >= -tol;
         if (!ok)
         { 
           all_pass = false;
@@ -508,40 +456,17 @@ bool Landscape::Set::verifyConnectivity(double tol) const
         continue;
       }
 
-      if (bi.curvature != 0.0 && bj.curvature != 0.0)
+      double ri = bi.radius, rj = bj.radius;
+      double d = (bi.centre - bj.centre).norm();
+      if (order == -1)
       {
-        double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
-        Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
-        Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
-        double d = (Ci - Cj).norm();
-        if (order == -1)
-        {
-          label = "dist"; target = ri + rj; actual = d;
-        }
-        else
-        {
-          double cos_theta = (d*d - ri*ri - rj*rj) / (2.0 * ri * rj);
-          target = pi / (double)order;
-          actual = std::acos(std::clamp(cos_theta, -1.0, 1.0));
-        }
-      }
-      else if (bi.curvature == 0.0 && bj.curvature == 0.0)
-      {
-        target = pi / (double)order;
-        // Planes are treated as unoriented: opposing normals (n, -n) meet at angle 0,
-        // parallel normals (n, n) meet at angle pi. Hence negate the dot product.
-        actual = std::acos(std::clamp(-bi.dir.dot(bj.dir), -1.0, 1.0));
+        label = "dist"; target = ri + rj; actual = d;
       }
       else
       {
-        const Ball &sphere = (bi.curvature != 0.0) ? bi : bj;
-        const Ball &plane  = (bi.curvature != 0.0) ? bj : bi;
-        double r = 1.0 / sphere.curvature;
-        Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
-        double cos_targ = (order == -1) ? 1.0 : std::cos(pi / (double)order);
-        target = r * cos_targ;
-        actual = plane.dir.dot(C) - plane.dist;
-        label = "dist";
+        double cos_theta = (d*d - ri*ri - rj*rj) / (2.0 * ri * rj);
+        target = pi / (double)order;
+        actual = std::acos(std::clamp(cos_theta, -1.0, 1.0));
       }
 
       ok = std::abs(actual - target) <= tol;

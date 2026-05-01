@@ -6,6 +6,14 @@
 
 static const double pi = std::acos(-1.0);
 
+static double clampSignedRadius(double r)
+{
+  constexpr double eps = 1e-6;
+  if (std::abs(r) < eps)
+    return (r < 0.0) ? -eps : eps;
+  return r;
+}
+
 #include <iostream>
 #include <vector>
 #include <Eigen/Dense>
@@ -192,10 +200,16 @@ void Landscape::outputCode(const std::string &filename) const
       int dest_s = setIndex(b.dest_ball);
       int dest_b = flatIndex(b.dest_ball);
       bool last = (si == num_sets - 1 && bi == n - 1);
+      Eigen::Vector3d dir = b.centre.normalized();
+      if (dir.squaredNorm() < 1e-20)
+        dir = Eigen::Vector3d(0, 0, 1);
+      double rr = clampSignedRadius(b.radius);
+      double dist = b.centre.norm() - rr;
+      double curvature = 1.0 / rr;
       out << "    Ball(vec3("
-          << b.dir.x() << ", " << b.dir.y() << ", " << b.dir.z() << "), "
-          << b.dist << ", "
-          << b.curvature << ", "
+          << dir.x() << ", " << dir.y() << ", " << dir.z() << "), "
+          << dist << ", "
+          << curvature << ", "
           << dest_s << ", "
           << dest_b << ")"
           << (last ? "" : ",") << "\n";
@@ -218,10 +232,16 @@ void Landscape::outputCode(const std::string &filename) const
       for (int bi = 0; bi < n; bi++, flat++)
       {
         const Set::Ball &b = s.leaf_balls[bi];
+        Eigen::Vector3d dir = b.centre.normalized();
+        if (dir.squaredNorm() < 1e-20)
+          dir = Eigen::Vector3d(0, 0, 1);
+        double rr = clampSignedRadius(b.radius);
+        double dist = b.centre.norm() - rr;
+        double curvature = 1.0 / rr;
         out << "    Ball(vec3("
-            << b.dir.x() << ", " << b.dir.y() << ", " << b.dir.z() << "), "
-            << b.dist << ", "
-            << b.curvature << ", "
+            << dir.x() << ", " << dir.y() << ", " << dir.z() << "), "
+            << dist << ", "
+            << curvature << ", "
             << "-1, -1)"  // leaf balls don't recurse
             << (flat < total_leaf_balls - 1 ? "," : "") << "\n";
       }

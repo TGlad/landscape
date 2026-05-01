@@ -90,6 +90,14 @@ void Landscape::addSetsToTypes()
 using Vec5 = Eigen::Matrix<double,5,1>;
 using Mat5 = Eigen::Matrix<double,5,5>;
 
+static double clampSignedRadius(double r)
+{
+  constexpr double eps = 1e-6;
+  if (std::abs(r) < eps)
+    return (r < 0.0) ? -eps : eps;
+  return r;
+}
+
 static double mink_dot(const Vec5 &a, const Vec5 &b)
 {
   return a.head<4>().dot(b.head<4>()) - a(4)*b(4);
@@ -97,6 +105,7 @@ static double mink_dot(const Vec5 &a, const Vec5 &b)
 
 static Vec5 conformal_sphere(const Eigen::Vector3d &c, double r)
 {
+  r = clampSignedRadius(r);
   double c2 = c.squaredNorm();
   Vec5 v;
   v << c.x(), c.y(), c.z(), (1.0-c2+r*r)/2.0, (1.0+c2-r*r)/2.0;
@@ -112,12 +121,7 @@ static Vec5 conformal_plane(const Eigen::Vector3d &n, double d)
 
 static Vec5 conformal_ball(const Landscape::Set::Ball &b)
 {
-  if (std::abs(b.curvature) < 1e-15)
-    return conformal_plane(b.dir, b.dist);
-
-  double r = 1.0 / b.curvature;
-  Eigen::Vector3d c = b.dir * (b.dist + r);
-  return conformal_sphere(c, r);
+  return conformal_sphere(b.centre, b.radius);
 }
 
 // Decompose an O(4,1) matrix M into the GLSL-friendly T,C,s,R form stored in
@@ -780,175 +784,68 @@ void Landscape::applyConnectivity(int iterations)
       Set::Ball &bi = set.balls[i];
       Set::Ball &bj = set.balls[j];
 
-      Eigen::Vector3d g_dir_i = Eigen::Vector3d::Zero(), g_dir_j = Eigen::Vector3d::Zero();
-      double g_dist_i = 0, g_curv_i = 0, g_dist_j = 0, g_curv_j = 0;
-      double error = 0;
+      Eigen::Vector3d Ci = bi.centre;
+      Eigen::Vector3d Cj = bj.centre;
+      double ri = clampSignedRadius(bi.radius);
+      double rj = clampSignedRadius(bj.radius);
 
-      if (bi.curvature != 0.0 && bj.curvature != 0.0)
+      Eigen::Vector3d Delta = Ci - Cj;
+      double d = Delta.norm();
+      if (d < 1e-12) continue;
+
+      double err = 0.0;
+      Eigen::Vector3d gCi = Eigen::Vector3d::Zero(), gCj = Eigen::Vector3d::Zero();
+      double gri = 0.0, grj = 0.0;
+
+      if (order <= 0)
       {
-        // Solve in (centre, radius) space so the step is translation-invariant.
-        // In the (dir, dist, κ) parameterisation g_dir scales as |C| = dist+r,
-        // so when balls are far from the origin g² ≈ |C|² and the radial/
-        // curvature DOFs are under-stepped by a factor of |C|² — breaking the
-        // invariance that constraining a set of spheres should not depend on
-        // where the set sits in space.
-        double ri = 1.0 / bi.curvature, rj = 1.0 / bj.curvature;
-        Eigen::Vector3d Ci = bi.dir * (bi.dist + ri);
-        Eigen::Vector3d Cj = bj.dir * (bj.dist + rj);
-        Eigen::Vector3d Delta = Ci - Cj;
-        double d = Delta.norm();
-        if (d < 1e-12) continue;
-
-        double err = 0.0;
-        Eigen::Vector3d gCi = Eigen::Vector3d::Zero(), gCj = Eigen::Vector3d::Zero();
-        double gri = 0.0, grj = 0.0;
-
-        if (order <= 0)
+        double targ_d = ri + rj + (order == 0 ? k : 0.0);
+        err = d - targ_d;
+        if (order == 0 && err >= 0.0) continue;
+        gCi =  Delta / d;
+        gCj = -Delta / d;
+        gri = -1.0;
+        grj = -1.0;
+      }
+      else
+      {
+        double d2 = d * d;
+        double cos_theta = (d2 - ri*ri - rj*rj) / (2.0 * ri * rj);
+        if (cos_theta >= 1.0 || cos_theta <= -1.0)
         {
-          double targ_d = ri + rj + (order == 0 ? k : 0.0);
-          err = d - targ_d;
-          if (order == 0 && err >= 0.0) continue;
-          gCi =  Delta / d;   // d(d)/dCi
+          // Rescue non-intersecting / containing pairs toward tangency.
+          err = d - (ri + rj);
+          gCi =  Delta / d;
           gCj = -Delta / d;
-          gri = -1.0;         // d(ri+rj)/dri
+          gri = -1.0;
           grj = -1.0;
         }
         else
         {
-          double d2 = d * d;
-          double cos_theta = (d2 - ri*ri - rj*rj) / (2.0 * ri * rj);
-          if (cos_theta >= 1.0)
-          {
-            // Spheres too far apart to intersect — rescue toward tangency.
-            err = d - (ri + rj);
-            gCi =  Delta / d;
-            gCj = -Delta / d;
-            gri = -1.0;
-            grj = -1.0;
-          }
-          else if (cos_theta <= -1.0)
-          {
-            // One sphere contains the other — rescue toward tangency.
-            err = d - (ri + rj);
-            gCi =  Delta / d;
-            gCj = -Delta / d;
-            gri = -1.0;
-            grj = -1.0;
-          }
-          else
-          {
-            double theta = std::acos(cos_theta);
-            double sin_theta = std::sin(theta);
-            if (std::abs(sin_theta) < 1e-10) continue;
-            err = pi / (double)order - theta;
-            double inv_sin = 1.0 / sin_theta;
-            // d(cos_theta)/dCi = Delta/(ri*rj)  [from d(d²)/dCi = 2Δ]
-            gCi =  inv_sin * Delta / (ri * rj);
-            gCj = -inv_sin * Delta / (ri * rj);
-            // d(cos_theta)/dri = -(ri²+d²-rj²)/(2ri²rj)
-            gri = inv_sin * (-(ri*ri + d2 - rj*rj) / (2.0 * ri*ri * rj));
-            grj = inv_sin * (-(rj*rj + d2 - ri*ri) / (2.0 * rj*rj * ri));
-          }
+          double theta = std::acos(cos_theta);
+          double sin_theta = std::sin(theta);
+          if (std::abs(sin_theta) < 1e-10) continue;
+          err = pi / (double)order - theta;
+          double inv_sin = 1.0 / sin_theta;
+          gCi =  inv_sin * Delta / (ri * rj);
+          gCj = -inv_sin * Delta / (ri * rj);
+          gri = inv_sin * (-(ri*ri + d2 - rj*rj) / (2.0 * ri*ri * rj));
+          grj = inv_sin * (-(rj*rj + d2 - ri*ri) / (2.0 * rj*rj * ri));
         }
-
-        const double wi = bi.mobility;
-        const double wj = bj.mobility;
-        gCi *= wi;  gri *= wi;
-        gCj *= wj;  grj *= wj;
-
-        double g2 = gCi.squaredNorm() + gri*gri + gCj.squaredNorm() + grj*grj;
-        double step = -err / (g2 + damping);
-
-        Ci += step * gCi;  ri = std::max(1e-6, ri + step * gri);
-        Cj += step * gCj;  rj = std::max(1e-6, rj + step * grj);
-
-        // Convert back to (dir, dist, κ).
-        bi.dir = Ci.normalized();  bi.dist = Ci.norm() - ri;  bi.curvature = 1.0 / ri;
-        bj.dir = Cj.normalized();  bj.dist = Cj.norm() - rj;  bj.curvature = 1.0 / rj;
-        continue; // step already applied; skip the (dir,dist,κ) update below
-      }
-      else if (bi.curvature == 0.0 && bj.curvature == 0.0)
-      {
-        if (order <= 0) continue;
-        double dot = bi.dir.dot(bj.dir);
-        // Planes are unoriented: opposing normals (n, -n) → dihedral angle 0,
-        // parallel normals (n, n) → dihedral angle pi. Use -dot so that
-        // acos(-dot) measures the dihedral angle, matching verifyConnectivity.
-        double theta = std::acos(std::clamp(-dot, -1.0, 1.0));
-        double sin_theta = std::sin(theta);
-        if (std::abs(sin_theta) < 1e-10) continue;
-        error = pi / (double)order - theta;
-        // d(acos(-dot))/d(ni) = +(1/sin_theta)*(nj - dot*ni), so
-        // d(error)/d(ni) = -(1/sin_theta)*(nj - dot*ni).
-        double inv_sin = 1.0 / sin_theta;
-        g_dir_i = -inv_sin * (bj.dir - dot * bi.dir);
-        g_dir_j = -inv_sin * (bi.dir - dot * bj.dir);
-      }
-      else
-      {
-        // Sphere-plane: solve the sphere in (C, r) space (translation-invariant),
-        // and pre-scale the plane-normal gradient by 1/|C_tang|² to remove the
-        // |C| lever-arm that would otherwise dominate g² when the sphere is far
-        // from the origin.  Each DOF then contributes O(1) to g².
-        //
-        // Constraint: f = n̂·C − d − r·cos_targ = 0
-        //   gC      = n̂                              O(1)
-        //   gr      = −cos_targ                       O(1)
-        //   g_n_raw = C_tang = C − (n̂·C)n̂            O(|C|)  → rescaled below
-        //   gd      = −1                              O(1)
-        const bool i_is_sphere = (bi.curvature != 0.0);
-        Set::Ball &sphere = i_is_sphere ? bi : bj;
-        Set::Ball &plane  = i_is_sphere ? bj : bi;
-        double r = 1.0 / sphere.curvature;
-        Eigen::Vector3d C = sphere.dir * (sphere.dist + r);
-        double signed_dist = plane.dir.dot(C) - plane.dist;
-        double cos_targ = (order <= 0) ? 1.0 : std::cos(pi / (double)order);
-        error = signed_dist - (r * cos_targ + (order == 0 ? k : 0.0));
-        if (order == 0 && error >= 0.0) continue;
-
-        // Sphere in (C, r) space.
-        Eigen::Vector3d gC = plane.dir;       // d(n̂·C)/dC = n̂
-        double          gr = -cos_targ;        // d(r·cos_targ)/dr
-
-        // Plane normal: tangential gradient rescaled to O(1).
-        Eigen::Vector3d C_tang = C - plane.dir.dot(C) * plane.dir;
-        double C_tang2 = C_tang.squaredNorm();
-        // Scaled gradient: produces a unit angular step whose lever arm is |C_tang|.
-        // g_n_scaled·Δn̂ contributes the same to Δf as gC·ΔC when |ΔC|=|Δn̂·lever|.
-        Eigen::Vector3d g_n_scaled = (C_tang2 > 1e-20) ? C_tang / C_tang2 : C_tang;
-        double gd = -1.0;
-
-        const double sphere_w = sphere.mobility;
-        const double plane_w  = plane.mobility;
-        gC *= sphere_w;            gr *= sphere_w;
-        g_n_scaled *= plane_w;     gd *= plane_w;
-
-        double g2 = gC.squaredNorm() + gr*gr + g_n_scaled.squaredNorm() + gd*gd;
-        double step = -error / (g2 + damping);
-
-        C += step * gC;  r = std::max(1e-6, r + step * gr);
-        sphere.dir = C.normalized();  sphere.dist = C.norm() - r;  sphere.curvature = 1.0 / r;
-
-        plane.dir  = (plane.dir + step * g_n_scaled).normalized();
-        plane.dist += step * gd;
-        continue; // step already applied
       }
 
-      // Mobility weights: 0=fixed, 1=standard, >1 more responsive.
       const double wi = bi.mobility;
       const double wj = bj.mobility;
-      g_dir_i *= wi;  g_dist_i *= wi;  g_curv_i *= wi;
-      g_dir_j *= wj;  g_dist_j *= wj;  g_curv_j *= wj;
+      gCi *= wi;  gri *= wi;
+      gCj *= wj;  grj *= wj;
 
-      double g2 = g_dir_i.squaredNorm() + g_dist_i*g_dist_i + g_curv_i*g_curv_i
-                + g_dir_j.squaredNorm() + g_dist_j*g_dist_j + g_curv_j*g_curv_j;
-      double step = -error / (g2 + damping);
-      bi.dir       += step * g_dir_i;  bi.dir.normalize();
-      bi.dist      += step * g_dist_i;
-      if (bi.curvature != 0.0) bi.curvature = std::max(1e-6, bi.curvature + step * g_curv_i);
-      bj.dir       += step * g_dir_j;  bj.dir.normalize();
-      bj.dist      += step * g_dist_j;
-      if (bj.curvature != 0.0) bj.curvature = std::max(1e-6, bj.curvature + step * g_curv_j);
+      double g2 = gCi.squaredNorm() + gri*gri + gCj.squaredNorm() + grj*grj;
+      double step = -err / (g2 + damping);
+
+      bi.centre = Ci + step * gCi;
+      bi.radius = clampSignedRadius(ri + step * gri);
+      bj.centre = Cj + step * gCj;
+      bj.radius = clampSignedRadius(rj + step * grj);
     }
     // ── (B) Möbius transform residual constraints ─────────────────────────
     //
@@ -959,28 +856,21 @@ void Landscape::applyConnectivity(int iterations)
     // Objective: f = ½‖e‖²  where  e = M·σ̂_s − σ̂_d.
     //   ∂f/∂σ̂_s = Mᵀe,  ∂f/∂σ̂_d = −e.
     //
-    // Chain dσ̂/d(C,r) (Jacobian rows: I/r | −Cᵀ/r | Cᵀ/r) then
-    // d(C,r)/d(dir,dist,curvature):
+    // Chain dσ̂/d(C,r):
     //   gC = (gs[0:3] + (gs[4]−gs[3])·C) / r
     //   gr = (−C/r²)·gs[0:3] + (r²−1+|C|²)/(2r²)·gs[3] − (r²+1+|C|²)/(2r²)·gs[4]
-    //   g_dir  = (dist+r)·(gC − (gC·d̂)·d̂)
-    //   g_dist = gC·d̂
-    //   g_curv = (gC·d̂ + gr)·(−1/κ²)
     //
     // GS step: δ = −(½‖e‖²/‖∇f‖²)·∇f  — zeros f in one linear step.
-    auto sigma_to_ball_grad = [](const Set::Ball &b, double r,
-                                 const Eigen::Vector3d &C, const Vec5 &gs)
-        -> std::tuple<Eigen::Vector3d, double, double>
+    auto sigma_to_sphere_grad = [](double r, const Eigen::Vector3d &C, const Vec5 &gs)
+        -> std::pair<Eigen::Vector3d, double>
     {
       double C2 = C.squaredNorm();
-      Eigen::Vector3d gC = (gs.head<3>() + (gs(4) - gs(3)) * C) / r;
-      double gr = (-C / (r*r)).dot(gs.head<3>())
-                + (r*r - 1.0 + C2) / (2.0*r*r) * gs(3)
-                - (r*r + 1.0 + C2) / (2.0*r*r) * gs(4);
-      Eigen::Vector3d g_dir  = (b.dist + r) * (gC - gC.dot(b.dir) * b.dir);
-      double          g_dist = gC.dot(b.dir);
-      double          g_curv = (gC.dot(b.dir) + gr) * (-1.0 / (b.curvature * b.curvature));
-      return {g_dir, g_dist, g_curv};
+      double rs = clampSignedRadius(r);
+      Eigen::Vector3d gC = (gs.head<3>() + (gs(4) - gs(3)) * C) / rs;
+      double gr = (-C / (rs*rs)).dot(gs.head<3>())
+                + (rs*rs - 1.0 + C2) / (2.0*rs*rs) * gs(3)
+                - (rs*rs + 1.0 + C2) / (2.0*rs*rs) * gs(4);
+      return {gC, gr};
     };
 
     if (!warmup_done) continue; // only apply cross-set constraints after warm-up
@@ -996,10 +886,8 @@ void Landscape::applyConnectivity(int iterations)
       Set::Ball &sA = src_ball.parent_set->balls[si];
       Set::Ball &dA = dst_ball.parent_set->balls[di];
 
-      if (sA.curvature == 0.0 || dA.curvature == 0.0) continue;
-
-      double rS = 1.0/sA.curvature, rD = 1.0/dA.curvature;
-      Eigen::Vector3d CS = sA.dir*(sA.dist+rS), CD = dA.dir*(dA.dist+rD);
+      double rS = clampSignedRadius(sA.radius), rD = clampSignedRadius(dA.radius);
+      Eigen::Vector3d CS = sA.centre, CD = dA.centre;
 
       Vec5 sigma_s = conformal_sphere(CS, rS);
       Vec5 sigma_d = conformal_sphere(CD, rD);
@@ -1011,25 +899,22 @@ void Landscape::applyConnectivity(int iterations)
       Vec5 g_sigma_s = src_ball.mobius.M.transpose() * e;
       Vec5 g_sigma_d = -e;
 
-      auto [gDirS, gDistS, gCurvS] = sigma_to_ball_grad(sA, rS, CS, g_sigma_s);
-      auto [gDirD, gDistD, gCurvD] = sigma_to_ball_grad(dA, rD, CD, g_sigma_d);
+      auto [gCS, gRS] = sigma_to_sphere_grad(rS, CS, g_sigma_s);
+      auto [gCD, gRD] = sigma_to_sphere_grad(rD, CD, g_sigma_d);
 
       const double wS = sA.mobility;
       const double wD = dA.mobility;
-      gDirS *= wS;  gDistS *= wS;  gCurvS *= wS;
-      gDirD *= wD;  gDistD *= wD;  gCurvD *= wD;
+      gCS *= wS;  gRS *= wS;
+      gCD *= wD;  gRD *= wD;
 
-      double g2 = gDirS.squaredNorm() + gDistS*gDistS + gCurvS*gCurvS
-                + gDirD.squaredNorm() + gDistD*gDistD + gCurvD*gCurvD;
+      double g2 = gCS.squaredNorm() + gRS*gRS + gCD.squaredNorm() + gRD*gRD;
 
       double step = -e.squaredNorm() / (2.0 * (g2 + damping));
 
-      sA.dir += step * gDirS;  sA.dir.normalize();
-      sA.dist += step * gDistS;
-      if (sA.curvature != 0.0) sA.curvature = std::max(1e-6, sA.curvature + step * gCurvS);
-      dA.dir += step * gDirD;  dA.dir.normalize();
-      dA.dist += step * gDistD;
-      if (dA.curvature != 0.0) dA.curvature = std::max(1e-6, dA.curvature + step * gCurvD);
+      sA.centre += step * gCS;
+      sA.radius = clampSignedRadius(sA.radius + step * gRS);
+      dA.centre += step * gCD;
+      dA.radius = clampSignedRadius(dA.radius + step * gRD);
     }
   }
 }
