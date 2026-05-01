@@ -16,6 +16,7 @@ int main()
   // shells
 //  shellShell();
   icosahedron();
+  icos2();
 
   // misc
 //  cubeSpongeSponge();
