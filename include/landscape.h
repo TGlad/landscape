@@ -104,7 +104,7 @@ struct Landscape
   std::deque<Type> types;
 
   void printConnectivity(bool show_valid_destinations = false); // called after all addSetToTypes() are called
-  void applyConnectivity(int iterations = 60);
+  void applyConnectivity(int iterations = 6000);
   void verifyConnectivity();  
   void calculateLeaves();
   void addSetsToTypes();  
