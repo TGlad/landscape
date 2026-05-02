@@ -569,6 +569,8 @@ void Landscape::applyConnectivity(int iterations)
   // either a within-set pair (conn order), or a cross-set Gram-matching pair.
   const double damping = 1e-10;
   const double k = 0.0; // minimum extra gap for separation constraints
+  const double sor = 1.0; // successive over-relaxation factor
+  const double anchor_weight = 0.0;//1e-3; // formal proximity anchor weight
 
   // Within-set pairs: {set index, ball i, ball j}
   struct IntraPair { int si, i, j; };
@@ -751,6 +753,21 @@ void Landscape::applyConnectivity(int iterations)
   std::mt19937 rng(42);
   bool warmup_done = !fit_mobius_transform;
 
+  // Proximity anchors: snapshot initial spheres and softly keep the solve near them.
+  std::vector<std::vector<Eigen::Vector3d>> ref_centres(sets.size());
+  std::vector<std::vector<double>> ref_radii(sets.size());
+  for (int si = 0; si < (int)sets.size(); si++)
+  {
+    int n = (int)sets[si].balls.size();
+    ref_centres[si].resize(n);
+    ref_radii[si].resize(n);
+    for (int i = 0; i < n; i++)
+    {
+      ref_centres[si][i] = sets[si].balls[i].centre;
+      ref_radii[si][i] = clampSignedRadius(sets[si].balls[i].radius);
+    }
+  }
+
   // ── Step 3: iterate ──────────────────────────────────────────────────────
   // The first `warmup_iters` iterations run intra constraints only.  Once the
   // per-set configurations are reasonably converged we compute M from those
@@ -840,7 +857,7 @@ void Landscape::applyConnectivity(int iterations)
       gCj *= wj;  grj *= wj;
 
       double g2 = gCi.squaredNorm() + gri*gri + gCj.squaredNorm() + grj*grj;
-      double step = -err / (g2 + damping);
+      double step = -sor * err / (g2 + damping);
 
       bi.centre = Ci + step * gCi;
       bi.radius = clampSignedRadius(ri + step * gri);
@@ -909,12 +926,34 @@ void Landscape::applyConnectivity(int iterations)
 
       double g2 = gCS.squaredNorm() + gRS*gRS + gCD.squaredNorm() + gRD*gRD;
 
-      double step = -e.squaredNorm() / (2.0 * (g2 + damping));
+      double step = -sor * e.squaredNorm() / (2.0 * (g2 + damping));
 
       sA.centre += step * gCS;
       sA.radius = clampSignedRadius(sA.radius + step * gRS);
       dA.centre += step * gCD;
       dA.radius = clampSignedRadius(dA.radius + step * gRD);
+    }
+
+    // ── (C) Formal proximity anchors ─────────────────────────────────────
+    // Adds weighted constraints that keep each ball close to its initial
+    // centre/radius while still allowing motion to satisfy topology.
+    const double anchor_step = sor * anchor_weight;
+    for (int si = 0; si < (int)sets.size(); si++)
+    {
+      int n = (int)sets[si].balls.size();
+      for (int i = 0; i < n; i++)
+      {
+        Set::Ball &b = sets[si].balls[i];
+        const Eigen::Vector3d &C0 = ref_centres[si][i];
+        double r0 = ref_radii[si][i];
+
+        double w = b.mobility;
+        if (w <= 0.0) continue;
+
+        // Gradient descent on anchor_weight * (||C-C0||^2 + (r-r0)^2)/2.
+        b.centre -= (anchor_step * w) * (b.centre - C0);
+        b.radius = clampSignedRadius(b.radius - (anchor_step * w) * (b.radius - r0));
+      }
     }
   }
 }
