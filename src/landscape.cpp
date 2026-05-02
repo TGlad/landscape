@@ -10,6 +10,7 @@ static const double pi = std::acos(-1.0);
 #include <vector>
 #include <set>
 #include <tuple>
+#include <unordered_map>
 #include <Eigen/Dense>
 
 void Landscape::addSetToTypes(Set &set)
@@ -567,7 +568,6 @@ void Landscape::applyConnectivity(int iterations)
   //
   // Each entry is one scalar constraint.  We use a tagged union approach:
   // either a within-set pair (conn order), or a cross-set Gram-matching pair.
-  const double damping = 1e-10;
   const double k = 0.0; // minimum extra gap for separation constraints
 
   // Within-set pairs: {set index, ball i, ball j}
@@ -748,8 +748,53 @@ void Landscape::applyConnectivity(int iterations)
       lk.src->mobius = Set::Ball::Mobius();
   }
 
-  std::mt19937 rng(42);
   bool warmup_done = !fit_mobius_transform;
+
+  // Global variable layout: x = [C0x,C0y,C0z,r0, C1x,...]
+  std::vector<Set::Ball*> all_balls;
+  all_balls.reserve(256);
+  std::unordered_map<Set::Ball*, int> ball_to_idx;
+  for (auto &set : sets)
+  {
+    for (auto &b : set.balls)
+    {
+      ball_to_idx[&b] = (int)all_balls.size();
+      all_balls.push_back(&b);
+    }
+  }
+
+  const int num_balls = (int)all_balls.size();
+  const int num_vars = 4 * num_balls;
+  auto base = [&](Set::Ball *b) { return 4 * ball_to_idx[b]; };
+
+  Eigen::VectorXd x_ref = Eigen::VectorXd::Zero(num_vars);
+  auto pullFromBalls = [&](Eigen::VectorXd &x) {
+    x.resize(num_vars);
+    for (int bi = 0; bi < num_balls; bi++)
+    {
+      const auto *b = all_balls[bi];
+      int o = 4 * bi;
+      x(o + 0) = b->centre.x();
+      x(o + 1) = b->centre.y();
+      x(o + 2) = b->centre.z();
+      x(o + 3) = clampSignedRadius(b->radius);
+    }
+  };
+  auto pushToBalls = [&](const Eigen::VectorXd &x) {
+    for (int bi = 0; bi < num_balls; bi++)
+    {
+      auto *b = all_balls[bi];
+      int o = 4 * bi;
+      b->centre = Eigen::Vector3d(x(o + 0), x(o + 1), x(o + 2));
+      b->radius = clampSignedRadius(x(o + 3));
+    }
+  };
+
+  pullFromBalls(x_ref);
+  Eigen::VectorXd x = x_ref;
+
+  const double nullspace_proximity_weight = 1e-3;
+  const double sqrt_prox = std::sqrt(nullspace_proximity_weight);
 
   // ── Step 3: iterate ──────────────────────────────────────────────────────
   // The first `warmup_iters` iterations run intra constraints only.  Once the
@@ -760,10 +805,11 @@ void Landscape::applyConnectivity(int iterations)
   // collapsing attractor: as src and dst drift toward each other the refreshed
   // M→I, which then tightens the src≈dst constraint further — ending with
   // both sets at the same position rather than a proper Möbius image of each.
-  const int warmup_iters = 1500;
+  const int warmup_iters = 15;
   const int effective_warmup_iters = fit_mobius_transform ? warmup_iters : 0;
   for (int it = 0; it < iterations + effective_warmup_iters; it++)
   {
+    std::cout << "iteration " << it << std::endl;
     // After the warm-up phase, compute M once and start applying mobius pairs.
     if (fit_mobius_transform && !warmup_done && it >= warmup_iters)
     {
@@ -772,18 +818,16 @@ void Landscape::applyConnectivity(int iterations)
       warmup_done = true;
     }
 
-    // Shuffle both pools independently to avoid ordering bias.
-    std::shuffle(intra_pairs.begin(), intra_pairs.end(), rng);
-    std::shuffle(mobius_pairs.begin(), mobius_pairs.end(), rng);
+    pullFromBalls(x);
 
-    // ── (A) Within-set constraints ─────────────────────────────────────────
-    for (auto [si, i, j] : intra_pairs)
-    {
-      Set &set = sets[si];
-      int order = set.conn(i, j);
-      Set::Ball &bi = set.balls[i];
-      Set::Ball &bj = set.balls[j];
+    const int max_rows = (int)intra_pairs.size()
+                       + (warmup_done ? 5 * (int)mobius_pairs.size() : 0)
+                       + num_vars;
+    Eigen::MatrixXd A(max_rows, num_vars);
+    Eigen::VectorXd b(max_rows);
+    int row = 0;
 
+    auto add_intra_constraint = [&](Set::Ball &bi, Set::Ball &bj, int order) {
       Eigen::Vector3d Ci = bi.centre;
       Eigen::Vector3d Cj = bj.centre;
       double ri = clampSignedRadius(bi.radius);
@@ -791,7 +835,7 @@ void Landscape::applyConnectivity(int iterations)
 
       Eigen::Vector3d Delta = Ci - Cj;
       double d = Delta.norm();
-      if (d < 1e-12) continue;
+      if (d < 1e-12) return;
 
       double err = 0.0;
       Eigen::Vector3d gCi = Eigen::Vector3d::Zero(), gCj = Eigen::Vector3d::Zero();
@@ -801,7 +845,7 @@ void Landscape::applyConnectivity(int iterations)
       {
         double targ_d = ri + rj + (order == 0 ? k : 0.0);
         err = d - targ_d;
-        if (order == 0 && err >= 0.0) continue;
+        if (order == 0 && err >= 0.0) return; // inequality inactive
         gCi =  Delta / d;
         gCj = -Delta / d;
         gri = -1.0;
@@ -824,7 +868,7 @@ void Landscape::applyConnectivity(int iterations)
         {
           double theta = std::acos(cos_theta);
           double sin_theta = std::sin(theta);
-          if (std::abs(sin_theta) < 1e-10) continue;
+          if (std::abs(sin_theta) < 1e-10) return;
           err = pi / (double)order - theta;
           double inv_sin = 1.0 / sin_theta;
           gCi =  inv_sin * Delta / (ri * rj);
@@ -834,88 +878,122 @@ void Landscape::applyConnectivity(int iterations)
         }
       }
 
+      A.row(row).setZero();
+      const int oi = base(&bi);
+      const int oj = base(&bj);
       const double wi = bi.mobility;
       const double wj = bj.mobility;
-      gCi *= wi;  gri *= wi;
-      gCj *= wj;  grj *= wj;
 
-      double g2 = gCi.squaredNorm() + gri*gri + gCj.squaredNorm() + grj*grj;
-      double step = -err / (g2 + damping);
+      A(row, oi + 0) = wi * gCi.x();
+      A(row, oi + 1) = wi * gCi.y();
+      A(row, oi + 2) = wi * gCi.z();
+      A(row, oi + 3) = wi * gri;
 
-      bi.centre = Ci + step * gCi;
-      bi.radius = clampSignedRadius(ri + step * gri);
-      bj.centre = Cj + step * gCj;
-      bj.radius = clampSignedRadius(rj + step * grj);
-    }
-    // ── (B) Möbius transform residual constraints ─────────────────────────
-    //
-    // For each type-neighbour ti of each src→dst link, enforce M·σ̂_s = σ̂_d
-    // where M = src.mobius.M (refreshed every 50 iterations) and
-    //   σ̂(C,r) = (C/r, (1−|C|²+r²)/(2r), (1+|C|²−r²)/(2r))
-    //
-    // Objective: f = ½‖e‖²  where  e = M·σ̂_s − σ̂_d.
-    //   ∂f/∂σ̂_s = Mᵀe,  ∂f/∂σ̂_d = −e.
-    //
-    // Chain dσ̂/d(C,r):
-    //   gC = (gs[0:3] + (gs[4]−gs[3])·C) / r
-    //   gr = (−C/r²)·gs[0:3] + (r²−1+|C|²)/(2r²)·gs[3] − (r²+1+|C|²)/(2r²)·gs[4]
-    //
-    // GS step: δ = −(½‖e‖²/‖∇f‖²)·∇f  — zeros f in one linear step.
-    auto sigma_to_sphere_grad = [](double r, const Eigen::Vector3d &C, const Vec5 &gs)
-        -> std::pair<Eigen::Vector3d, double>
-    {
-      double C2 = C.squaredNorm();
-      double rs = clampSignedRadius(r);
-      Eigen::Vector3d gC = (gs.head<3>() + (gs(4) - gs(3)) * C) / rs;
-      double gr = (-C / (rs*rs)).dot(gs.head<3>())
-                + (rs*rs - 1.0 + C2) / (2.0*rs*rs) * gs(3)
-                - (rs*rs + 1.0 + C2) / (2.0*rs*rs) * gs(4);
-      return {gC, gr};
+      A(row, oj + 0) = wj * gCj.x();
+      A(row, oj + 1) = wj * gCj.y();
+      A(row, oj + 2) = wj * gCj.z();
+      A(row, oj + 3) = wj * grj;
+
+      b(row) = -err;
+      row++;
     };
 
-    if (!warmup_done) continue; // only apply cross-set constraints after warm-up
-
-    for (auto &mp : mobius_pairs)
+    for (auto [si, i, j] : intra_pairs)
     {
-      Set::Ball &src_ball = *mp.src;
-      Set::Ball &dst_ball = *mp.dst;
-
-      int si = src_ball.type_to_set[mp.ti];
-      int di = dst_ball.type_to_set[mp.ti];
-
-      Set::Ball &sA = src_ball.parent_set->balls[si];
-      Set::Ball &dA = dst_ball.parent_set->balls[di];
-
-      double rS = clampSignedRadius(sA.radius), rD = clampSignedRadius(dA.radius);
-      Eigen::Vector3d CS = sA.centre, CD = dA.centre;
-
-      Vec5 sigma_s = conformal_sphere(CS, rS);
-      Vec5 sigma_d = conformal_sphere(CD, rD);
-
-      // Residual: how far M·σ̂_s is from σ̂_d.
-      Vec5 e = src_ball.mobius.M * sigma_s - sigma_d;
-
-      // Gradient of ½‖e‖² w.r.t. σ̂_s is Mᵀe; w.r.t. σ̂_d is −e.
-      Vec5 g_sigma_s = src_ball.mobius.M.transpose() * e;
-      Vec5 g_sigma_d = -e;
-
-      auto [gCS, gRS] = sigma_to_sphere_grad(rS, CS, g_sigma_s);
-      auto [gCD, gRD] = sigma_to_sphere_grad(rD, CD, g_sigma_d);
-
-      const double wS = sA.mobility;
-      const double wD = dA.mobility;
-      gCS *= wS;  gRS *= wS;
-      gCD *= wD;  gRD *= wD;
-
-      double g2 = gCS.squaredNorm() + gRS*gRS + gCD.squaredNorm() + gRD*gRD;
-
-      double step = -e.squaredNorm() / (2.0 * (g2 + damping));
-
-      sA.centre += step * gCS;
-      sA.radius = clampSignedRadius(sA.radius + step * gRS);
-      dA.centre += step * gCD;
-      dA.radius = clampSignedRadius(dA.radius + step * gRD);
+      Set &set = sets[si];
+      add_intra_constraint(set.balls[i], set.balls[j], set.conn(i, j));
     }
+
+    if (warmup_done)
+    {
+      auto sigma_jacobian = [](const Eigen::Vector3d &C, double r,
+                               Eigen::Matrix<double,5,3> &dC,
+                               Eigen::Matrix<double,5,1> &dr)
+      {
+        double rs = clampSignedRadius(r);
+        double C2 = C.squaredNorm();
+        dC.setZero();
+        dC(0,0) = 1.0/rs;
+        dC(1,1) = 1.0/rs;
+        dC(2,2) = 1.0/rs;
+        dC.row(3) = (-C / rs).transpose();
+        dC.row(4) = ( C / rs).transpose();
+
+        dr(0) = -C.x() / (rs*rs);
+        dr(1) = -C.y() / (rs*rs);
+        dr(2) = -C.z() / (rs*rs);
+        dr(3) = (rs*rs - 1.0 + C2) / (2.0*rs*rs);
+        dr(4) = -(rs*rs + 1.0 + C2) / (2.0*rs*rs);
+      };
+
+      for (auto &mp : mobius_pairs)
+      {
+        Set::Ball &src_ball = *mp.src;
+        Set::Ball &dst_ball = *mp.dst;
+
+        int si = src_ball.type_to_set[mp.ti];
+        int di = dst_ball.type_to_set[mp.ti];
+        Set::Ball &sA = src_ball.parent_set->balls[si];
+        Set::Ball &dA = dst_ball.parent_set->balls[di];
+
+        double rS = clampSignedRadius(sA.radius), rD = clampSignedRadius(dA.radius);
+        const Eigen::Vector3d &CS = sA.centre;
+        const Eigen::Vector3d &CD = dA.centre;
+
+        Vec5 sigma_s = conformal_sphere(CS, rS);
+        Vec5 sigma_d = conformal_sphere(CD, rD);
+        Vec5 e = src_ball.mobius.M * sigma_s - sigma_d;
+
+        Eigen::Matrix<double,5,3> dSigS_dC, dSigD_dC;
+        Eigen::Matrix<double,5,1> dSigS_dr, dSigD_dr;
+        sigma_jacobian(CS, rS, dSigS_dC, dSigS_dr);
+        sigma_jacobian(CD, rD, dSigD_dC, dSigD_dr);
+
+        const int os = base(&sA);
+        const int od = base(&dA);
+        const double wS = sA.mobility;
+        const double wD = dA.mobility;
+
+        for (int q = 0; q < 5; q++)
+        {
+          A.row(row).setZero();
+          for (int a = 0; a < 3; a++)
+          {
+            A(row, os + a) = wS * src_ball.mobius.M.row(q).dot(dSigS_dC.col(a));
+            A(row, od + a) = -wD * dSigD_dC(q, a);
+          }
+          A(row, os + 3) = wS * src_ball.mobius.M.row(q).dot(dSigS_dr);
+          A(row, od + 3) = -wD * dSigD_dr(q);
+          b(row) = -e(q);
+          row++;
+        }
+      }
+    }
+
+    // Secondary objective: among underdetermined linearised solutions,
+    // pick the one closest to initial spheres.
+    for (int v = 0; v < num_vars; v++)
+    {
+      A.row(row).setZero();
+      A(row, v) = sqrt_prox;
+      b(row) = sqrt_prox * (x_ref(v) - x(v));
+      row++;
+    }
+
+    if (row == 0)
+      continue;
+
+    Eigen::MatrixXd A_use = A.topRows(row);
+    Eigen::VectorXd b_use = b.head(row);
+
+    Eigen::VectorXd delta = A_use.colPivHouseholderQr().solve(b_use);
+    if (delta.size() != num_vars)
+      continue;
+
+    x += delta;
+    for (int bi = 0; bi < num_balls; bi++)
+      x(4 * bi + 3) = clampSignedRadius(x(4 * bi + 3));
+    pushToBalls(x);
   }
 }
 
