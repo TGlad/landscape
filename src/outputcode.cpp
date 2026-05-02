@@ -49,6 +49,12 @@ void Landscape::outputCode(const std::string &filename) const
 
   int total_balls = offsets[num_sets];
 
+  // Per-ball neighbour metadata used by GLSL recursion helpers.
+  // For balls whose destination is reflexive (dest_ball == self), metadata is zeroed.
+  std::vector<int> neighbour_offsets(total_balls, 0);
+  std::vector<int> neighbour_counts(total_balls, 0);
+  std::vector<int> neighbours;
+
   // Build per-set offsets into the flat leaf_ball array
   std::vector<int> leaf_offsets(num_sets + 1, 0);
   for (int si = 0; si < num_sets; si++)
@@ -82,6 +88,33 @@ void Landscape::outputCode(const std::string &filename) const
     return -1;
   };
 
+  // Build neighbour arrays in flat-ball space.
+  for (int si = 0; si < num_sets; si++)
+  {
+    const Set &s = sets[si];
+    int n = (int)s.balls.size();
+    for (int bi = 0; bi < n; bi++)
+    {
+      int flat_b = offsets[si] + bi;
+      const Set::Ball &b = s.balls[bi];
+      bool is_reflexive = (b.dest_ball == nullptr || b.dest_ball == &s.balls[bi]);
+      if (is_reflexive)
+      {
+        neighbour_offsets[flat_b] = 0;
+        neighbour_counts[flat_b] = 0;
+        continue;
+      }
+
+      neighbour_offsets[flat_b] = (int)neighbours.size();
+      for (int j = 0; j < n; j++)
+      {
+        if (s.conn(bi, j) > 0)
+          neighbours.push_back(offsets[si] + j); // store flat neighbour id
+      }
+      neighbour_counts[flat_b] = (int)neighbours.size() - neighbour_offsets[flat_b];
+    }
+  }
+
   out << std::fixed << std::setprecision(7);
 
   // ── Ball struct ──────────────────────────────────────────────────────────
@@ -91,6 +124,8 @@ void Landscape::outputCode(const std::string &filename) const
       << "    float curvature;\n"
       << "    int   dest_set;   // flat index into SETS[];  -1 = reflexive\n"
       << "    int   dest_ball;  // flat index into BALLS[]; -1 = none\n"
+      << "    int   neighbours_offset; // offset in NEIGHBOURS[]\n"
+      << "    int   num_neighbours;    // number of neighbours\n"
       << "};\n\n";
     out << "struct Overlap {\n"
         << "    int ball_0, ball_1;\n"
@@ -151,6 +186,14 @@ void Landscape::outputCode(const std::string &filename) const
     out << locs[si] << (si < locs.size()-1 ? ", " : "");
   out << ");\n";
   out << "const int MAX_BALLS_PER_SET = " << max_balls_per_set << ";\n\n";
+
+  if (neighbours.empty())
+    neighbours.push_back(0); // GLSL cannot have 0-length arrays
+  out << "const int NUM_NEIGHBOURS = " << (int)neighbours.size() << ";\n";
+  out << "const int NEIGHBOURS[NUM_NEIGHBOURS] = int[" << (int)neighbours.size() << "](";
+  for (int i = 0; i < (int)neighbours.size(); i++)
+    out << neighbours[i] << (i < (int)neighbours.size() - 1 ? ", " : "");
+  out << ");\n\n";
     int overlap_storage = std::max(1, total_overlaps);
     out << "const int NUM_OVERLAPS = " << total_overlaps << ";\n";
     out << "const Overlap OVERLAPS[" << overlap_storage << "] = Overlap[" << overlap_storage << "](\n";
@@ -211,7 +254,9 @@ void Landscape::outputCode(const std::string &filename) const
           << dist << ", "
           << curvature << ", "
           << dest_s << ", "
-          << dest_b << ")"
+          << dest_b << ", "
+          << neighbour_offsets[offsets[si] + bi] << ", "
+          << neighbour_counts[offsets[si] + bi] << ")"
           << (last ? "" : ",") << "\n";
     }
   }
@@ -242,7 +287,7 @@ void Landscape::outputCode(const std::string &filename) const
             << dir.x() << ", " << dir.y() << ", " << dir.z() << "), "
             << dist << ", "
             << curvature << ", "
-            << "-1, -1)"  // leaf balls don't recurse
+          << "-1, -1, 0, 0)"  // leaf balls don't recurse
             << (flat < total_leaf_balls - 1 ? "," : "") << "\n";
       }
     }
