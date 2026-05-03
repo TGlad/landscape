@@ -10,6 +10,9 @@ static const double pi = std::acos(-1.0);
 #include <vector>
 #include <set>
 #include <tuple>
+#include <algorithm>
+#include <functional>
+#include <limits>
 #include <Eigen/Dense>
 
 void Landscape::addSetToTypes(Set &set)
@@ -90,6 +93,8 @@ void Landscape::addSetsToTypes()
 using Vec5 = Eigen::Matrix<double,5,1>;
 using Mat5 = Eigen::Matrix<double,5,5>;
 
+static Mat5 eta_orthonormalize(const Mat5 &M_in);
+
 static double clampSignedRadius(double r)
 {
   constexpr double eps = 1e-6;
@@ -122,6 +127,210 @@ static Vec5 conformal_plane(const Eigen::Vector3d &n, double d)
 static Vec5 conformal_ball(const Landscape::Set::Ball &b)
 {
   return conformal_sphere(b.centre, b.radius);
+}
+
+static bool fitMobiusFromPairs(const Landscape::Set &src_set,
+                               const Landscape::Set &dst_set,
+                               const std::vector<std::pair<int,int>> &pairs,
+                               Mat5 &M_out,
+                               double &residual_out)
+{
+  int m = (int)pairs.size();
+  if (m < 2) return false;
+
+  Eigen::MatrixXd A(5, m), C(5, m);
+  for (int i = 0; i < m; i++)
+  {
+    int si = pairs[i].first;
+    int di = pairs[i].second;
+    if (si < 0 || si >= (int)src_set.balls.size() || di < 0 || di >= (int)dst_set.balls.size())
+      return false;
+    A.col(i) = conformal_ball(src_set.balls[si]);
+    C.col(i) = conformal_ball(dst_set.balls[di]);
+  }
+
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd_A(A, Eigen::ComputeFullU | Eigen::ComputeThinV);
+  svd_A.setThreshold(0.01);
+  int r = svd_A.rank();
+  if (r <= 0) return false;
+
+  Eigen::VectorXd sinv = Eigen::VectorXd::Zero(svd_A.singularValues().size());
+  for (int i = 0; i < sinv.size(); i++)
+    if (svd_A.singularValues()(i) > 0.0)
+      sinv(i) = 1.0 / svd_A.singularValues()(i);
+
+  Mat5 M = (C * svd_A.matrixV() * sinv.asDiagonal() * svd_A.matrixU().transpose()).eval();
+  if (!M.allFinite()) return false;
+
+  M = eta_orthonormalize(M);
+  if (!M.allFinite()) return false;
+
+  residual_out = (M * A - C).norm() / std::sqrt((double)m);
+  M_out = M;
+  return std::isfinite(residual_out);
+}
+
+static std::vector<int> identityTypeMap(const Landscape::Set::Ball &src,
+                                        const Landscape::Set::Ball &dst)
+{
+  int m = (int)std::min(src.type_to_set.size(), dst.type_to_set.size());
+  std::vector<int> map(m);
+  for (int i = 0; i < m; i++) map[i] = i;
+  return map;
+}
+
+static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src,
+                                                 const Landscape::Set::Ball &dst)
+{
+  std::vector<int> best_map = identityTypeMap(src, dst);
+  int m = (int)best_map.size();
+  if (m < 2) return best_map;
+
+  int src0 = src.type_to_set[0];
+  int dst0 = dst.type_to_set[0];
+
+  std::vector<int> src_neigh_tis, dst_neigh_tis;
+  for (int ti = 1; ti < m; ti++)
+  {
+    if (src.parent_set->conn(src0, src.type_to_set[ti]) > 0)
+      src_neigh_tis.push_back(ti);
+    if (dst.parent_set->conn(dst0, dst.type_to_set[ti]) > 0)
+      dst_neigh_tis.push_back(ti);
+  }
+
+  if (src_neigh_tis.empty() || src_neigh_tis.size() != dst_neigh_tis.size())
+    return best_map;
+
+  auto sideFilterPasses = [&](const std::vector<int> &test_map) -> bool {
+    if (src_neigh_tis.size() < 3) return true;
+
+    const Landscape::Set &src_set = *src.parent_set;
+    const Landscape::Set &dst_set = *dst.parent_set;
+
+    std::vector<Eigen::Vector3d> src_pts, dst_pts;
+    src_pts.reserve(src_neigh_tis.size());
+    dst_pts.reserve(src_neigh_tis.size());
+    for (int s_ti : src_neigh_tis)
+    {
+      int d_ti = test_map[s_ti];
+      src_pts.push_back(src_set.balls[src.type_to_set[s_ti]].centre);
+      dst_pts.push_back(dst_set.balls[dst.type_to_set[d_ti]].centre);
+    }
+
+    auto meanPoint = [](const std::vector<Eigen::Vector3d> &pts) -> Eigen::Vector3d {
+      Eigen::Vector3d c = Eigen::Vector3d::Zero();
+      for (const auto &p : pts) c += p;
+      return c / (double)std::max(1, (int)pts.size());
+    };
+
+    auto setCentroid = [](const Landscape::Set &s) -> Eigen::Vector3d {
+      if (s.balls.empty()) return Eigen::Vector3d::Zero();
+      Eigen::Vector3d c = Eigen::Vector3d::Zero();
+      for (const auto &b : s.balls) c += b.centre;
+      return c / (double)s.balls.size();
+    };
+
+    auto orientedPlaneNormal = [&](const std::vector<Eigen::Vector3d> &pts,
+                                   const Eigen::Vector3d &center_ball,
+                                   Eigen::Vector3d &origin,
+                                   Eigen::Vector3d &normal) -> bool {
+      origin = meanPoint(pts);
+      Eigen::Matrix3d cov = Eigen::Matrix3d::Zero();
+      for (const auto &p : pts)
+      {
+        Eigen::Vector3d d = p - origin;
+        cov += d * d.transpose();
+      }
+      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eig(cov);
+      if (eig.info() != Eigen::Success) return false;
+      normal = eig.eigenvectors().col(0).normalized(); // smallest variance axis
+      if (!normal.allFinite() || normal.squaredNorm() < 1e-20) return false;
+
+      // Fix normal sign consistently using center ball side.
+      if ((center_ball - origin).dot(normal) < 0.0)
+        normal = -normal;
+      return true;
+    };
+
+    Eigen::Vector3d src_o, src_n, dst_o, dst_n;
+    const Eigen::Vector3d src_center_ball = src_set.balls[src.type_to_set[0]].centre;
+    const Eigen::Vector3d dst_center_ball = dst_set.balls[dst.type_to_set[0]].centre;
+    if (!orientedPlaneNormal(src_pts, src_center_ball, src_o, src_n)) return true;
+    if (!orientedPlaneNormal(dst_pts, dst_center_ball, dst_o, dst_n)) return true;
+
+    double src_side = (setCentroid(src_set) - src_o).dot(src_n);
+    double dst_side = (setCentroid(dst_set) - dst_o).dot(dst_n);
+
+    // Near-coplanar centroid wrt fan plane: treat as ambiguous and allow.
+    const double eps = 1e-8;
+    if (std::abs(src_side) < eps || std::abs(dst_side) < eps)
+      return true;
+
+    return src_side * dst_side > 0.0;
+  };
+
+  std::vector<int> chosen(src_neigh_tis.size(), -1);
+  std::vector<char> used(dst_neigh_tis.size(), 0);
+  double best_res = std::numeric_limits<double>::infinity();
+
+  std::function<void(int)> dfs = [&](int idx)
+  {
+    if (idx == (int)src_neigh_tis.size())
+    {
+      std::vector<int> test_map = best_map;
+      for (int k = 0; k < (int)src_neigh_tis.size(); k++)
+        test_map[src_neigh_tis[k]] = chosen[k];
+
+      if (!sideFilterPasses(test_map))
+        return;
+
+      std::vector<std::pair<int,int>> pairs;
+      pairs.reserve(1 + src_neigh_tis.size());
+      pairs.push_back({src.type_to_set[0], dst.type_to_set[test_map[0]]});
+      for (int s_ti : src_neigh_tis)
+        pairs.push_back({src.type_to_set[s_ti], dst.type_to_set[test_map[s_ti]]});
+
+      Mat5 M;
+      double res = 0.0;
+      if (fitMobiusFromPairs(*src.parent_set, *dst.parent_set, pairs, M, res) && res < best_res)
+      {
+        best_res = res;
+        best_map = test_map;
+      }
+      return;
+    }
+
+    int s_ti = src_neigh_tis[idx];
+    for (int c = 0; c < (int)dst_neigh_tis.size(); c++)
+    {
+      if (used[c]) continue;
+      int d_ti = dst_neigh_tis[c];
+
+      bool ok = true;
+      for (int p = 0; p < idx; p++)
+      {
+        int s_prev = src_neigh_tis[p];
+        int d_prev = chosen[p];
+        int so = src.parent_set->conn(src.type_to_set[s_ti], src.type_to_set[s_prev]);
+        int do_ = dst.parent_set->conn(dst.type_to_set[d_ti], dst.type_to_set[d_prev]);
+        if (so != do_)
+        {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+
+      chosen[idx] = d_ti;
+      used[c] = 1;
+      dfs(idx + 1);
+      used[c] = 0;
+      chosen[idx] = -1;
+    }
+  };
+
+  dfs(0);
+  return best_map;
 }
 
 // Decompose an O(4,1) matrix M into the GLSL-friendly T,C,s,R form stored in
@@ -225,11 +434,14 @@ static void decomposeMobius(const Mat5 &M,
 
 static bool computeMobiusTransform(Landscape::Set::Ball &src,
                                    Landscape::Set::Ball &dst,
-                                   bool quiet = false)
+                                   bool quiet = false,
+                                   const std::vector<int> *dst_ti_for_src_ti = nullptr)
 {
   src.mobius.M = Mat5::Identity();
 
   int m = (int)src.type_to_set.size(); // index 0 = ball itself
+  if (dst_ti_for_src_ti)
+    m = std::min(m, (int)dst_ti_for_src_ti->size());
   const std::string tag = "[mobius " + src.parent_set->name
                         + " ball " + std::to_string(src.type_to_set[0]) + "]";
 
@@ -245,12 +457,30 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
   Mat5 eta = Mat5::Identity();
   eta(4,4) = -1.0;
 
+  std::vector<int> src_tis, dst_tis;
+  src_tis.reserve(m);
+  dst_tis.reserve(m);
+  for (int i = 0; i < m; i++)
+  {
+    int dti = dst_ti_for_src_ti ? (*dst_ti_for_src_ti)[i] : i;
+    if (i < 0 || i >= (int)src.type_to_set.size()) continue;
+    if (dti < 0 || dti >= (int)dst.type_to_set.size()) continue;
+    src_tis.push_back(i);
+    dst_tis.push_back(dti);
+  }
+  m = (int)src_tis.size();
+  if (m < 2)
+  {
+    if (!quiet) std::cout << tag << " identity (insufficient mapped pairs)\n";
+    return true;
+  }
+
   // Build 5×m matrices A (source) and C (dest), columns = unit σ̂.
   Eigen::MatrixXd A(5, m), C(5, m);
   for (int i = 0; i < m; i++)
   {
-    const auto &sb = src_set->balls[src.type_to_set[i]];
-    const auto &db = dst_set->balls[dst.type_to_set[i]];
+    const auto &sb = src_set->balls[src.type_to_set[src_tis[i]]];
+    const auto &db = dst_set->balls[dst.type_to_set[dst_tis[i]]];
     A.col(i) = conformal_ball(sb);
     C.col(i) = conformal_ball(db);
   }
@@ -275,8 +505,8 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
         {
           double ds = -mink_dot(A.col(i), A.col(j));
           double dd = -mink_dot(C.col(i), C.col(j));
-          int si = src.type_to_set[i], sj = src.type_to_set[j];
-          int di = dst.type_to_set[i], dj = dst.type_to_set[j];
+          int si = src.type_to_set[src_tis[i]], sj = src.type_to_set[src_tis[j]];
+          int di = dst.type_to_set[dst_tis[i]], dj = dst.type_to_set[dst_tis[j]];
           std::cout << "    (" << si << "," << sj << ")→(" << di << "," << dj << "):"
                     << "  src δ=" << ds << "  dst δ=" << dd
                     << (std::abs(ds-dd) > 0.1 ? "  *** MISMATCH" : "") << "\n";
@@ -569,7 +799,7 @@ void Landscape::applyConnectivity(int iterations)
   // either a within-set pair (conn order), or a cross-set Gram-matching pair.
   const double damping = 1e-10;
   const double k = 0.0; // minimum extra gap for separation constraints
-  const double sor = 1.0; // successive over-relaxation factor
+  const double sor = 1.2; // successive over-relaxation factor
   const double anchor_weight = 0.0;//1e-3; // formal proximity anchor weight
 
   // Within-set pairs: {set index, ball i, ball j}
@@ -701,18 +931,18 @@ void Landscape::applyConnectivity(int iterations)
   //   e = M·σ̂_s − σ̂_d = 0
   // This is a direct 5D residual constraint on M itself, far more precise
   // than the old pairwise inversive-distance proxy.
-  struct MobiusPair { Set::Ball *src; Set::Ball *dst; int ti; };
+  struct MobiusPair { Set::Ball *src; Set::Ball *dst; int src_ti; int dst_ti; };
   std::vector<MobiusPair> mobius_pairs;
 
   // Deduplicated list of unique src→dst links for M recomputation.
-  struct MobiusLink { Set::Ball *src; Set::Ball *dst; };
+  struct MobiusLink { Set::Ball *src; Set::Ball *dst; std::vector<int> dst_ti_for_src_ti; };
   std::vector<MobiusLink> mobius_links;
   std::set<std::tuple<Set::Ball*, Set::Ball*>> mobius_link_keys;
   auto addMobiusLink = [&](Set::Ball *src, Set::Ball *dst) {
     if (src == nullptr || dst == nullptr || src == dst) return;
     auto key = std::make_tuple(src, dst);
     if (mobius_link_keys.insert(key).second)
-      mobius_links.push_back({src, dst});
+      mobius_links.push_back({src, dst, identityTypeMap(*src, *dst)});
   };
 
   for (auto &set : sets)
@@ -728,20 +958,24 @@ void Landscape::applyConnectivity(int iterations)
     addMobiusLink(lk.first, lk.second);
 
   // Build per-neighbour constraints from all (regular + overlap) links.
-  std::set<std::tuple<Set::Ball*, Set::Ball*, int>> mobius_pair_keys;
-  for (auto &lk : mobius_links)
-  {
-    Set::Ball *src = lk.src;
-    Set::Ball *dst = lk.dst;
-    int m = (int)std::min(src->type_to_set.size(), dst->type_to_set.size());
-    for (int ti = 0; ti < m; ti++)
+  auto rebuildMobiusPairs = [&]() {
+    mobius_pairs.clear();
+    std::set<std::tuple<Set::Ball*, Set::Ball*, int, int>> mobius_pair_keys;
+    for (auto &lk : mobius_links)
     {
-      auto key = std::make_tuple(src, dst, ti);
-      if (mobius_pair_keys.insert(key).second)
-        mobius_pairs.push_back({src, dst, ti});
+      int m = (int)lk.dst_ti_for_src_ti.size();
+      for (int sti = 0; sti < m; sti++)
+      {
+        int dti = lk.dst_ti_for_src_ti[sti];
+        if (sti < 0 || sti >= (int)lk.src->type_to_set.size()) continue;
+        if (dti < 0 || dti >= (int)lk.dst->type_to_set.size()) continue;
+        auto key = std::make_tuple(lk.src, lk.dst, sti, dti);
+        if (mobius_pair_keys.insert(key).second)
+          mobius_pairs.push_back({lk.src, lk.dst, sti, dti});
+      }
     }
-  }
-
+  };
+  rebuildMobiusPairs();
   // If false: keep cross-set constraints, but fix every link transform to identity.
   const bool fit_mobius_transform = false;
   if (!fit_mobius_transform)
@@ -785,7 +1019,11 @@ void Landscape::applyConnectivity(int iterations)
     if (fit_mobius_transform && !warmup_done && it >= warmup_iters)
     {
       for (auto &lk : mobius_links)
-        computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true);
+      {
+        lk.dst_ti_for_src_ti = findBestNeighbourTypeMap(*lk.src, *lk.dst);
+        computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true, &lk.dst_ti_for_src_ti);
+      }
+      rebuildMobiusPairs();
       warmup_done = true;
     }
 
@@ -897,8 +1135,8 @@ void Landscape::applyConnectivity(int iterations)
       Set::Ball &src_ball = *mp.src;
       Set::Ball &dst_ball = *mp.dst;
 
-      int si = src_ball.type_to_set[mp.ti];
-      int di = dst_ball.type_to_set[mp.ti];
+      int si = src_ball.type_to_set[mp.src_ti];
+      int di = dst_ball.type_to_set[mp.dst_ti];
 
       Set::Ball &sA = src_ball.parent_set->balls[si];
       Set::Ball &dA = dst_ball.parent_set->balls[di];
