@@ -437,6 +437,7 @@ static bool computeMobiusTransform(Landscape::Set::Ball &src,
                                    bool quiet = false,
                                    const std::vector<int> *dst_ti_for_src_ti = nullptr)
 {
+  std::cout << "compute mobius transform" << std::endl;
   src.mobius.M = Mat5::Identity();
 
   int m = (int)src.type_to_set.size(); // index 0 = ball itself
@@ -977,7 +978,7 @@ void Landscape::applyConnectivity(int iterations)
   };
   rebuildMobiusPairs();
   // If false: keep cross-set constraints, but fix every link transform to identity.
-  const bool fit_mobius_transform = false;
+  const bool fit_mobius_transform = true;
   if (!fit_mobius_transform)
   {
     for (auto &lk : mobius_links)
@@ -1020,8 +1021,10 @@ void Landscape::applyConnectivity(int iterations)
     {
       for (auto &lk : mobius_links)
       {
+        std::cout << "fitting Mobius transform" << std::endl;
         lk.dst_ti_for_src_ti = findBestNeighbourTypeMap(*lk.src, *lk.dst);
         computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true, &lk.dst_ti_for_src_ti);
+        std::cout << "fitted Mobius transform" << std::endl;
       }
       rebuildMobiusPairs();
       warmup_done = true;
