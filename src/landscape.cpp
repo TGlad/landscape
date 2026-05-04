@@ -889,39 +889,44 @@ void Landscape::applyConnectivity(int iterations)
         continue;
       }
 
-      // Cross links: a -> B[a], b -> A[b].
-      overlap_links.push_back({&ov_set.balls[a], &dstB.balls[a]});
-      overlap_links.push_back({&ov_set.balls[b], &dstA.balls[b]});
+      // Cross links: a -> B[a], b -> A[b]. Annotate with which parent mobius to use (0 or 1).
+      // We use a struct to carry the mobius parent index.
+      struct OverlapLink { Set::Ball *ov_ball; Set::Ball *dst_ball; int parent_mobius; };
+      static std::vector<OverlapLink> overlap_links_ext; // static to avoid redefinition warning
+      overlap_links_ext.clear();
+      overlap_links_ext.push_back({&ov_set.balls[a], &dstB.balls[a], 0}); // use parent0.mobius
+      overlap_links_ext.push_back({&ov_set.balls[b], &dstA.balls[b], 1}); // use parent1.mobius
 
-      // Rule 3: neighbours of a map to corresponding neighbours of B[a],
-      // under current aligned-index assumption (n -> B[n]).
+      // Rule 3: neighbours of a map to corresponding neighbours of B[a], use parent0.mobius
       for (int n = 0; n < (int)ov_set.balls.size(); n++)
       {
         if (n == b) continue; // handled by anchor link a -> B[a]
         if (ov_set.conn(a, n) > 0)
         {
           if (n >= 0 && n < (int)dstB.balls.size())
-            overlap_links.push_back({&ov_set.balls[n], &dstB.balls[n]});
+            overlap_links_ext.push_back({&ov_set.balls[n], &dstB.balls[n], 0});
           else
             std::cerr << "[applyConnectivity] overlap neighbour index " << n
                       << " out of range for destination set '" << dstB.name << "'\n";
         }
       }
 
-      // Rule 4: neighbours of b map to corresponding neighbours of A[b],
-      // under current aligned-index assumption (n -> A[n]).
+      // Rule 4: neighbours of b map to corresponding neighbours of A[b], use parent1.mobius
       for (int n = 0; n < (int)ov_set.balls.size(); n++)
       {
         if (n == a) continue; // handled by anchor link b -> A[b]
         if (ov_set.conn(b, n) > 0)
         {
           if (n >= 0 && n < (int)dstA.balls.size())
-            overlap_links.push_back({&ov_set.balls[n], &dstA.balls[n]});
+            overlap_links_ext.push_back({&ov_set.balls[n], &dstA.balls[n], 1});
           else
             std::cerr << "[applyConnectivity] overlap neighbour index " << n
                       << " out of range for destination set '" << dstA.name << "'\n";
         }
       }
+      // Now add to overlap_links for legacy code, but also store extended info for mobius_links below.
+      for (const auto &ol : overlap_links_ext)
+        overlap_links.push_back({ol.ov_ball, ol.dst_ball});
     }
   }
 
@@ -955,8 +960,17 @@ void Landscape::applyConnectivity(int iterations)
     }
   }
 
-  for (auto &lk : overlap_links)
-    addMobiusLink(lk.first, lk.second);
+  // For overlap_links, we need to know which parent mobius to use for the src ball.
+  // So we use the extended struct if available.
+  for (const auto &lk : overlap_links)
+    addMobiusLink(lk.first, lk.second); // legacy, for now
+
+  // Extended: for overlap_links_ext, store which parent mobius to use for each link.
+  // We'll use this info in the mobius_pairs loop below.
+  static std::vector<std::tuple<Set::Ball*, Set::Ball*, int>> mobius_parent_for_overlap;
+  mobius_parent_for_overlap.clear();
+  for (const auto &ol : overlap_links_ext)
+    mobius_parent_for_overlap.push_back({ol.ov_ball, ol.dst_ball, ol.parent_mobius});
 
   // Build per-neighbour constraints from all (regular + overlap) links.
   auto rebuildMobiusPairs = [&]() {
@@ -1147,14 +1161,39 @@ void Landscape::applyConnectivity(int iterations)
       double rS = clampSignedRadius(sA.radius), rD = clampSignedRadius(dA.radius);
       Eigen::Vector3d CS = sA.centre, CD = dA.centre;
 
+      // Check if this is an overlap constraint and if so, which parent mobius to use.
+      // Default: use src_ball.mobius.M
+      const Set::Ball::Mobius *mobius_to_use = &src_ball.mobius;
+      for (const auto &tup : mobius_parent_for_overlap) {
+        if (std::get<0>(tup) == &sA && std::get<1>(tup) == &dA) {
+          // Use parent0 or parent1 mobius from the overlap's parent set.
+          int parent_idx = std::get<2>(tup);
+          const Set *parent_set = sA.parent_set;
+          const auto &ov = parent_set->overlaps;
+          // Find the overlap struct that matches this sA.
+          for (const auto &ovr : ov) {
+            if ((parent_idx == 0 && &parent_set->balls[ovr.ball_0] == &sA) ||
+                (parent_idx == 1 && &parent_set->balls[ovr.ball_1] == &sA)) {
+              // Use the correct parent's mobius.
+              if (parent_idx == 0)
+                mobius_to_use = &parent_set->balls[ovr.ball_0].mobius;
+              else
+                mobius_to_use = &parent_set->balls[ovr.ball_1].mobius;
+              break;
+            }
+          }
+          break;
+        }
+      }
+
       Vec5 sigma_s = conformal_sphere(CS, rS);
       Vec5 sigma_d = conformal_sphere(CD, rD);
 
       // Residual: how far M·σ̂_s is from σ̂_d.
-      Vec5 e = src_ball.mobius.M * sigma_s - sigma_d;
+      Vec5 e = mobius_to_use->M * sigma_s - sigma_d;
 
       // Gradient of ½‖e‖² w.r.t. σ̂_s is Mᵀe; w.r.t. σ̂_d is −e.
-      Vec5 g_sigma_s = src_ball.mobius.M.transpose() * e;
+      Vec5 g_sigma_s = mobius_to_use->M.transpose() * e;
       Vec5 g_sigma_d = -e;
 
       auto [gCS, gRS] = sigma_to_sphere_grad(rS, CS, g_sigma_s);
