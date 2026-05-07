@@ -755,55 +755,45 @@ void Landscape::printConnectivity(bool show_valid_destinations)
 //
 void Landscape::applyConnectivity(int iterations)
 {
-  // ── Step 1: resolve dest_ball pointers by name ──────────────────────────
-  // (mirrors the logic in matchUpDestinationBalls so we don't need it called first)
+  // Step 1: resolve dest_ball pointers by name.
   for (auto &set : sets)
   {
     for (auto &ball : set.balls)
     {
       if (ball.dest_set == "")
       {
-        ball.dest_ball = &ball; // self-map
+        ball.dest_ball = &ball;
         continue;
       }
-      // Find the set with the right name.
+
       Set *dest_set_ptr = nullptr;
       for (auto &s : sets)
         if (s.name == ball.dest_set) { dest_set_ptr = &s; break; }
+
       if (!dest_set_ptr)
       {
         std::cerr << "[applyConnectivity] dest_set '" << ball.dest_set
                   << "' not found for ball in set '" << set.name << "'\n";
         continue;
       }
+
       if (ball.dest_ball_id >= 0 && ball.dest_ball_id < (int)dest_set_ptr->balls.size())
         ball.dest_ball = &dest_set_ptr->balls[ball.dest_ball_id];
       else
-        ball.dest_ball = &dest_set_ptr->balls[0]; // fallback
+        ball.dest_ball = &dest_set_ptr->balls[0];
     }
   }
 
-  // Resolve overlap destination sets and collect additional overlap-driven
-  // src→dst Möbius links. For overlap (a,b), with
-  //   A = balls[a].dest_set, B = balls[b].dest_set,
-  // use cross-links:
-  //   a -> B[a],  b -> A[b]
-  // and neighbour links (same-index assumption):
-  //   n neighbour of a (n != b) -> B[n]
-  //   n neighbour of b (n != a) -> A[n]
-  // If n is neighbour of both a and b, both links are added (dedup later).
-  std::vector<std::pair<Set::Ball*, Set::Ball*>> overlap_links;
-
-  // ── Step 2: build all constraint pairs ──────────────────────────────────
-  //
-  // Each entry is one scalar constraint.  We use a tagged union approach:
-  // either a within-set pair (conn order), or a cross-set Gram-matching pair.
   const double damping = 1e-10;
-  const double k = 0.0; // minimum extra gap for separation constraints
-  const double sor = 1.2; // successive over-relaxation factor
-  const double anchor_weight = 0.0;//1e-3; // formal proximity anchor weight
+  const double k = 0.0;
+  const double sor = 1.2;
+  const double anchor_weight = 0.0;
+  const bool fit_mobius_transform = true;
 
-  // Within-set pairs: {set index, ball i, ball j}
+  std::mt19937 rng(42);
+  bool warmup_done = !fit_mobius_transform;
+
+  // Within-set pairs.
   struct IntraPair { int si, i, j; };
   std::vector<IntraPair> intra_pairs;
   std::set<std::tuple<int,int,int>> intra_pair_keys;
@@ -823,127 +813,22 @@ void Landscape::applyConnectivity(int iterations)
         addIntraPair(si, i, j);
   }
 
-  // Helpers used by overlap constraint wiring.
   auto setIndexByName = [&](const std::string &name) -> int {
     for (int si = 0; si < (int)sets.size(); si++)
       if (sets[si].name == name) return si;
     return -1;
   };
 
-  for (int si = 0; si < (int)sets.size(); si++)
-  {
-    Set &src_set = sets[si];
-    for (const auto &ov : src_set.overlaps)
-    {
-      if (ov.ball_0 < 0 || ov.ball_0 >= (int)src_set.balls.size()
-          || ov.ball_1 < 0 || ov.ball_1 >= (int)src_set.balls.size())
-      {
-        std::cerr << "[applyConnectivity] overlap has invalid source ball indices in set '"
-                  << src_set.name << "'\n";
-        continue;
-      }
-
-      Set::Ball &parent0 = src_set.balls[ov.ball_0];
-      Set::Ball &parent1 = src_set.balls[ov.ball_1];
-
-      int dsiO = setIndexByName(ov.dest_set);      // overlap set (source of overlap links)
-      // If a parent ball has no destination set, fall back to the parent/source set.
-      int dsiA = parent0.dest_set.empty() ? si : setIndexByName(parent0.dest_set);
-      int dsiB = parent1.dest_set.empty() ? si : setIndexByName(parent1.dest_set);
-      if (dsiO < 0)
-      {
-        std::cerr << "[applyConnectivity] overlap source set '" << ov.dest_set
-                  << "' not found for parent set '" << src_set.name << "'\n";
-        continue;
-      }
-      if (dsiA < 0 || dsiB < 0)
-      {
-        std::cerr << "[applyConnectivity] overlap needs valid destination (or source-fallback) sets on both source balls in set '"
-                  << src_set.name << "'\n";
-        continue;
-      }
-      Set &ov_set = sets[dsiO];
-      Set &dstA = sets[dsiA];
-      Set &dstB = sets[dsiB];
-
-      int a = ov.ball_0;
-      int b = ov.ball_1;
-
-      if (a < 0 || a >= (int)ov_set.balls.size() || b < 0 || b >= (int)ov_set.balls.size())
-      {
-        std::cerr << "[applyConnectivity] overlap indices out of range for overlap set '"
-                  << ov_set.name << "'\n";
-        continue;
-      }
-
-      if (a < 0 || a >= (int)dstB.balls.size())
-      {
-        std::cerr << "[applyConnectivity] overlap cross-link a->B out of range for set '"
-                  << dstB.name << "'\n";
-        continue;
-      }
-      if (b < 0 || b >= (int)dstA.balls.size())
-      {
-        std::cerr << "[applyConnectivity] overlap cross-link b->A out of range for set '"
-                  << dstA.name << "'\n";
-        continue;
-      }
-
-      // Cross links: a -> B[a], b -> A[b]. Annotate with which parent mobius to use (0 or 1).
-      // We use a struct to carry the mobius parent index.
-      struct OverlapLink { Set::Ball *ov_ball; Set::Ball *dst_ball; int parent_mobius; };
-      static std::vector<OverlapLink> overlap_links_ext; // static to avoid redefinition warning
-      overlap_links_ext.clear();
-      overlap_links_ext.push_back({&ov_set.balls[a], &dstB.balls[a], 0}); // use parent0.mobius
-      overlap_links_ext.push_back({&ov_set.balls[b], &dstA.balls[b], 1}); // use parent1.mobius
-
-      // Rule 3: neighbours of a map to corresponding neighbours of B[a], use parent0.mobius
-      for (int n = 0; n < (int)ov_set.balls.size(); n++)
-      {
-        if (n == b) continue; // handled by anchor link a -> B[a]
-        if (ov_set.conn(a, n) > 0)
-        {
-          if (n >= 0 && n < (int)dstB.balls.size())
-            overlap_links_ext.push_back({&ov_set.balls[n], &dstB.balls[n], 0});
-          else
-            std::cerr << "[applyConnectivity] overlap neighbour index " << n
-                      << " out of range for destination set '" << dstB.name << "'\n";
-        }
-      }
-
-      // Rule 4: neighbours of b map to corresponding neighbours of A[b], use parent1.mobius
-      for (int n = 0; n < (int)ov_set.balls.size(); n++)
-      {
-        if (n == a) continue; // handled by anchor link b -> A[b]
-        if (ov_set.conn(b, n) > 0)
-        {
-          if (n >= 0 && n < (int)dstA.balls.size())
-            overlap_links_ext.push_back({&ov_set.balls[n], &dstA.balls[n], 1});
-          else
-            std::cerr << "[applyConnectivity] overlap neighbour index " << n
-                      << " out of range for destination set '" << dstA.name << "'\n";
-        }
-      }
-      // Now add to overlap_links for legacy code, but also store extended info for mobius_links below.
-      for (const auto &ol : overlap_links_ext)
-        overlap_links.push_back({ol.ov_ball, ol.dst_ball});
-    }
-  }
-
-  // Cross-set Möbius pairs: for each ball B with a non-self dest_ball D,
-  // emit one entry per type-neighbour of B.  During solving we enforce that
-  // M (recomputed from current ball positions every 50 iterations) maps the
-  // source conformal vector σ̂_s to the dest conformal vector σ̂_d:
-  //   e = M·σ̂_s − σ̂_d = 0
-  // This is a direct 5D residual constraint on M itself, far more precise
-  // than the old pairwise inversive-distance proxy.
+  // Cross-set Möbius constraints.
   struct MobiusPair { Set::Ball *src; Set::Ball *dst; int src_ti; int dst_ti; };
-  std::vector<MobiusPair> mobius_pairs;
-
-  // Deduplicated list of unique src→dst links for M recomputation.
   struct MobiusLink { Set::Ball *src; Set::Ball *dst; std::vector<int> dst_ti_for_src_ti; };
+  struct OverlapLink { Set::Ball *ov_ball; Set::Ball *dst_ball; Set::Ball *mobius_owner; };
+
+  std::vector<MobiusPair> mobius_pairs;
   std::vector<MobiusLink> mobius_links;
   std::set<std::tuple<Set::Ball*, Set::Ball*>> mobius_link_keys;
+  std::vector<OverlapLink> overlap_links;
+
   auto addMobiusLink = [&](Set::Ball *src, Set::Ball *dst) {
     if (src == nullptr || dst == nullptr || src == dst) return;
     auto key = std::make_tuple(src, dst);
@@ -952,27 +837,53 @@ void Landscape::applyConnectivity(int iterations)
   };
 
   for (auto &set : sets)
-  {
     for (auto &ball : set.balls)
+      if (ball.dest_ball != nullptr && ball.dest_ball != &ball)
+        addMobiusLink(&ball, ball.dest_ball);
+
+  auto buildOverlapLinks = [&]() {
+    overlap_links.clear();
+    for (int si = 0; si < (int)sets.size(); si++)
     {
-      if (ball.dest_ball == nullptr || ball.dest_ball == &ball) continue;
-      addMobiusLink(&ball, ball.dest_ball);
+      Set &src_set = sets[si];
+      for (const auto &ov : src_set.overlaps)
+      {
+        if (ov.ball_0 < 0 || ov.ball_0 >= (int)src_set.balls.size()
+            || ov.ball_1 < 0 || ov.ball_1 >= (int)src_set.balls.size())
+          continue;
+
+        Set::Ball &parent0 = src_set.balls[ov.ball_0];
+        Set::Ball &parent1 = src_set.balls[ov.ball_1];
+
+        int dsiO = setIndexByName(ov.dest_set);
+        int dsiA = parent0.dest_set.empty() ? si : setIndexByName(parent0.dest_set);
+        int dsiB = parent1.dest_set.empty() ? si : setIndexByName(parent1.dest_set);
+        if (dsiO < 0 || dsiA < 0 || dsiB < 0) continue;
+
+        Set &ov_set = sets[dsiO];
+        Set &dstA = sets[dsiA];
+        Set &dstB = sets[dsiB];
+
+        int a = ov.ball_0;
+        int b = ov.ball_1;
+        if (a < 0 || a >= (int)ov_set.balls.size() || b < 0 || b >= (int)ov_set.balls.size()) continue;
+        if (a < 0 || a >= (int)dstB.balls.size()) continue;
+        if (b < 0 || b >= (int)dstA.balls.size()) continue;
+
+        overlap_links.push_back({&ov_set.balls[a], &dstB.balls[a], &parent0});
+        overlap_links.push_back({&ov_set.balls[b], &dstA.balls[b], &parent1});
+
+        for (int n = 0; n < (int)ov_set.balls.size(); n++)
+          if (n != b && ov_set.conn(a, n) > 0 && n < (int)dstB.balls.size())
+            overlap_links.push_back({&ov_set.balls[n], &dstB.balls[n], &parent0});
+
+        for (int n = 0; n < (int)ov_set.balls.size(); n++)
+          if (n != a && ov_set.conn(b, n) > 0 && n < (int)dstA.balls.size())
+            overlap_links.push_back({&ov_set.balls[n], &dstA.balls[n], &parent1});
+      }
     }
-  }
+  };
 
-  // For overlap_links, we need to know which parent mobius to use for the src ball.
-  // So we use the extended struct if available.
-  for (const auto &lk : overlap_links)
-    addMobiusLink(lk.first, lk.second); // legacy, for now
-
-  // Extended: for overlap_links_ext, store which parent mobius to use for each link.
-  // We'll use this info in the mobius_pairs loop below.
-  static std::vector<std::tuple<Set::Ball*, Set::Ball*, int>> mobius_parent_for_overlap;
-  mobius_parent_for_overlap.clear();
-  for (const auto &ol : overlap_links_ext)
-    mobius_parent_for_overlap.push_back({ol.ov_ball, ol.dst_ball, ol.parent_mobius});
-
-  // Build per-neighbour constraints from all (regular + overlap) links.
   auto rebuildMobiusPairs = [&]() {
     mobius_pairs.clear();
     std::set<std::tuple<Set::Ball*, Set::Ball*, int, int>> mobius_pair_keys;
@@ -991,18 +902,13 @@ void Landscape::applyConnectivity(int iterations)
     }
   };
   rebuildMobiusPairs();
-  // If false: keep cross-set constraints, but fix every link transform to identity.
-  const bool fit_mobius_transform = true;
+
   if (!fit_mobius_transform)
   {
     for (auto &lk : mobius_links)
       lk.src->mobius = Set::Ball::Mobius();
   }
 
-  std::mt19937 rng(42);
-  bool warmup_done = !fit_mobius_transform;
-
-  // Proximity anchors: snapshot initial spheres and softly keep the solve near them.
   std::vector<std::vector<Eigen::Vector3d>> ref_centres(sets.size());
   std::vector<std::vector<double>> ref_radii(sets.size());
   for (int si = 0; si < (int)sets.size(); si++)
@@ -1017,38 +923,80 @@ void Landscape::applyConnectivity(int iterations)
     }
   }
 
-  // ── Step 3: iterate ──────────────────────────────────────────────────────
-  // The first `warmup_iters` iterations run intra constraints only.  Once the
-  // per-set configurations are reasonably converged we compute M from those
-  // positions and hold it FIXED for the remainder of the solve.
-  //
-  // M must NOT be refreshed during the joint solve.  Doing so creates a
-  // collapsing attractor: as src and dst drift toward each other the refreshed
-  // M→I, which then tightens the src≈dst constraint further — ending with
-  // both sets at the same position rather than a proper Möbius image of each.
+  auto sigma_to_sphere_grad = [](double r, const Eigen::Vector3d &C, const Vec5 &gs)
+      -> std::pair<Eigen::Vector3d, double>
+  {
+    double C2 = C.squaredNorm();
+    double rs = clampSignedRadius(r);
+    Eigen::Vector3d gC = (gs.head<3>() + (gs(4) - gs(3)) * C) / rs;
+    double gr = (-C / (rs*rs)).dot(gs.head<3>())
+              + (rs*rs - 1.0 + C2) / (2.0*rs*rs) * gs(3)
+              - (rs*rs + 1.0 + C2) / (2.0*rs*rs) * gs(4);
+    return {gC, gr};
+  };
+
   const int warmup_iters = 1500;
   const int effective_warmup_iters = fit_mobius_transform ? warmup_iters : 0;
   for (int it = 0; it < iterations + effective_warmup_iters; it++)
   {
-    // After the warm-up phase, compute M once and start applying mobius pairs.
     if (fit_mobius_transform && !warmup_done && it >= warmup_iters)
     {
       for (auto &lk : mobius_links)
       {
-        std::cout << "fitting Mobius transform" << std::endl;
         lk.dst_ti_for_src_ti = findBestNeighbourTypeMap(*lk.src, *lk.dst);
         computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true, &lk.dst_ti_for_src_ti);
-        std::cout << "fitted Mobius transform" << std::endl;
       }
+
+      // Add overlap links only after warmup so fitting is unaffected by overlaps.
+      buildOverlapLinks();
+
+      auto findLinkMap = [&](Set::Ball *src, Set::Ball *dst) -> const std::vector<int>* {
+        for (auto &lk : mobius_links)
+          if (lk.src == src && lk.dst == dst)
+            return &lk.dst_ti_for_src_ti;
+        return nullptr;
+      };
+
+      for (const auto &ol : overlap_links)
+      {
+        addMobiusLink(ol.ov_ball, ol.dst_ball);
+
+        // Overlap links must inherit neighbour mapping from the corresponding
+        // parent cross-set link (ball_0's link-set or ball_1's link-set),
+        // rather than running an independent best-fit search.
+        const std::vector<int> *owner_map = nullptr;
+        if (ol.mobius_owner != nullptr
+            && ol.mobius_owner->dest_ball != nullptr
+            && ol.mobius_owner->dest_ball != ol.mobius_owner)
+        {
+          owner_map = findLinkMap(ol.mobius_owner, ol.mobius_owner->dest_ball);
+        }
+
+        for (auto &lk : mobius_links)
+        {
+          if (lk.src == ol.ov_ball && lk.dst == ol.dst_ball)
+          {
+            if (owner_map != nullptr && owner_map->size() == lk.dst_ti_for_src_ti.size())
+              lk.dst_ti_for_src_ti = *owner_map;
+            else
+              lk.dst_ti_for_src_ti = identityTypeMap(*lk.src, *lk.dst);
+            break;
+          }
+        }
+      }
+
       rebuildMobiusPairs();
       warmup_done = true;
     }
 
-    // Shuffle both pools independently to avoid ordering bias.
-    std::shuffle(intra_pairs.begin(), intra_pairs.end(), rng);
+    // Keep warmup deterministic and per-topology stable: this prevents
+    // unrelated additions (e.g. overlap-only sets) from changing the
+    // A->C fit simply by perturbing global shuffle order.
+    if (warmup_done)
+      std::shuffle(intra_pairs.begin(), intra_pairs.end(), rng);
     std::shuffle(mobius_pairs.begin(), mobius_pairs.end(), rng);
 
-    // ── (A) Within-set constraints ─────────────────────────────────────────
+    // (A) intra-set constraints
     for (auto [si, i, j] : intra_pairs)
     {
       Set &set = sets[si];
@@ -1085,7 +1033,6 @@ void Landscape::applyConnectivity(int iterations)
         double cos_theta = (d2 - ri*ri - rj*rj) / (2.0 * ri * rj);
         if (cos_theta >= 1.0 || cos_theta <= -1.0)
         {
-          // Rescue non-intersecting / containing pairs toward tangency.
           err = d - (ri + rj);
           gCi =  Delta / d;
           gCj = -Delta / d;
@@ -1119,104 +1066,8 @@ void Landscape::applyConnectivity(int iterations)
       bj.centre = Cj + step * gCj;
       bj.radius = clampSignedRadius(rj + step * grj);
     }
-    // ── (B) Möbius transform residual constraints ─────────────────────────
-    //
-    // For each type-neighbour ti of each src→dst link, enforce M·σ̂_s = σ̂_d
-    // where M = src.mobius.M (refreshed every 50 iterations) and
-    //   σ̂(C,r) = (C/r, (1−|C|²+r²)/(2r), (1+|C|²−r²)/(2r))
-    //
-    // Objective: f = ½‖e‖²  where  e = M·σ̂_s − σ̂_d.
-    //   ∂f/∂σ̂_s = Mᵀe,  ∂f/∂σ̂_d = −e.
-    //
-    // Chain dσ̂/d(C,r):
-    //   gC = (gs[0:3] + (gs[4]−gs[3])·C) / r
-    //   gr = (−C/r²)·gs[0:3] + (r²−1+|C|²)/(2r²)·gs[3] − (r²+1+|C|²)/(2r²)·gs[4]
-    //
-    // GS step: δ = −(½‖e‖²/‖∇f‖²)·∇f  — zeros f in one linear step.
-    auto sigma_to_sphere_grad = [](double r, const Eigen::Vector3d &C, const Vec5 &gs)
-        -> std::pair<Eigen::Vector3d, double>
-    {
-      double C2 = C.squaredNorm();
-      double rs = clampSignedRadius(r);
-      Eigen::Vector3d gC = (gs.head<3>() + (gs(4) - gs(3)) * C) / rs;
-      double gr = (-C / (rs*rs)).dot(gs.head<3>())
-                + (rs*rs - 1.0 + C2) / (2.0*rs*rs) * gs(3)
-                - (rs*rs + 1.0 + C2) / (2.0*rs*rs) * gs(4);
-      return {gC, gr};
-    };
 
-    if (!warmup_done) continue; // only apply cross-set constraints after warm-up
-
-    for (auto &mp : mobius_pairs)
-    {
-      Set::Ball &src_ball = *mp.src;
-      Set::Ball &dst_ball = *mp.dst;
-
-      int si = src_ball.type_to_set[mp.src_ti];
-      int di = dst_ball.type_to_set[mp.dst_ti];
-
-      Set::Ball &sA = src_ball.parent_set->balls[si];
-      Set::Ball &dA = dst_ball.parent_set->balls[di];
-
-      double rS = clampSignedRadius(sA.radius), rD = clampSignedRadius(dA.radius);
-      Eigen::Vector3d CS = sA.centre, CD = dA.centre;
-
-      // Check if this is an overlap constraint and if so, which parent mobius to use.
-      // Default: use src_ball.mobius.M
-      const Set::Ball::Mobius *mobius_to_use = &src_ball.mobius;
-      for (const auto &tup : mobius_parent_for_overlap) {
-        if (std::get<0>(tup) == &sA && std::get<1>(tup) == &dA) {
-          // Use parent0 or parent1 mobius from the overlap's parent set.
-          int parent_idx = std::get<2>(tup);
-          const Set *parent_set = sA.parent_set;
-          const auto &ov = parent_set->overlaps;
-          // Find the overlap struct that matches this sA.
-          for (const auto &ovr : ov) {
-            if ((parent_idx == 0 && &parent_set->balls[ovr.ball_0] == &sA) ||
-                (parent_idx == 1 && &parent_set->balls[ovr.ball_1] == &sA)) {
-              // Use the correct parent's mobius.
-              if (parent_idx == 0)
-                mobius_to_use = &parent_set->balls[ovr.ball_0].mobius;
-              else
-                mobius_to_use = &parent_set->balls[ovr.ball_1].mobius;
-              break;
-            }
-          }
-          break;
-        }
-      }
-
-      Vec5 sigma_s = conformal_sphere(CS, rS);
-      Vec5 sigma_d = conformal_sphere(CD, rD);
-
-      // Residual: how far M·σ̂_s is from σ̂_d.
-      Vec5 e = mobius_to_use->M * sigma_s - sigma_d;
-
-      // Gradient of ½‖e‖² w.r.t. σ̂_s is Mᵀe; w.r.t. σ̂_d is −e.
-      Vec5 g_sigma_s = mobius_to_use->M.transpose() * e;
-      Vec5 g_sigma_d = -e;
-
-      auto [gCS, gRS] = sigma_to_sphere_grad(rS, CS, g_sigma_s);
-      auto [gCD, gRD] = sigma_to_sphere_grad(rD, CD, g_sigma_d);
-
-      const double wS = sA.mobility;
-      const double wD = dA.mobility;
-      gCS *= wS;  gRS *= wS;
-      gCD *= wD;  gRD *= wD;
-
-      double g2 = gCS.squaredNorm() + gRS*gRS + gCD.squaredNorm() + gRD*gRD;
-
-      double step = -sor * e.squaredNorm() / (2.0 * (g2 + damping));
-
-      sA.centre += step * gCS;
-      sA.radius = clampSignedRadius(sA.radius + step * gRS);
-      dA.centre += step * gCD;
-      dA.radius = clampSignedRadius(dA.radius + step * gRD);
-    }
-
-    // ── (C) Formal proximity anchors ─────────────────────────────────────
-    // Adds weighted constraints that keep each ball close to its initial
-    // centre/radius while still allowing motion to satisfy topology.
+    // (C) proximity anchors (apply during warmup too, to fix gauge drift)
     const double anchor_step = sor * anchor_weight;
     for (int si = 0; si < (int)sets.size(); si++)
     {
@@ -1230,11 +1081,62 @@ void Landscape::applyConnectivity(int iterations)
         double w = b.mobility;
         if (w <= 0.0) continue;
 
-        // Gradient descent on anchor_weight * (||C-C0||^2 + (r-r0)^2)/2.
         b.centre -= (anchor_step * w) * (b.centre - C0);
         b.radius = clampSignedRadius(b.radius - (anchor_step * w) * (b.radius - r0));
       }
     }
+
+    if (!warmup_done) continue;
+
+    // (B) cross-set Möbius residual constraints
+    for (auto &mp : mobius_pairs)
+    {
+      Set::Ball &src_ball = *mp.src;
+      Set::Ball &dst_ball = *mp.dst;
+
+      int si = src_ball.type_to_set[mp.src_ti];
+      int di = dst_ball.type_to_set[mp.dst_ti];
+
+      Set::Ball &sA = src_ball.parent_set->balls[si];
+      Set::Ball &dA = dst_ball.parent_set->balls[di];
+
+      const Set::Ball::Mobius *mobius_to_use = &src_ball.mobius;
+      for (const auto &ol : overlap_links)
+      {
+        if (ol.ov_ball == mp.src && ol.dst_ball == mp.dst)
+        {
+          mobius_to_use = &ol.mobius_owner->mobius;
+          break;
+        }
+      }
+
+      double rS = clampSignedRadius(sA.radius), rD = clampSignedRadius(dA.radius);
+      Eigen::Vector3d CS = sA.centre, CD = dA.centre;
+
+      Vec5 sigma_s = conformal_sphere(CS, rS);
+      Vec5 sigma_d = conformal_sphere(CD, rD);
+
+      Vec5 e = mobius_to_use->M * sigma_s - sigma_d;
+      Vec5 g_sigma_s = mobius_to_use->M.transpose() * e;
+      Vec5 g_sigma_d = -e;
+
+      auto [gCS, gRS] = sigma_to_sphere_grad(rS, CS, g_sigma_s);
+      auto [gCD, gRD] = sigma_to_sphere_grad(rD, CD, g_sigma_d);
+
+      const double wS = sA.mobility;
+      const double wD = dA.mobility;
+      gCS *= wS;  gRS *= wS;
+      gCD *= wD;  gRD *= wD;
+
+      double g2 = gCS.squaredNorm() + gRS*gRS + gCD.squaredNorm() + gRD*gRD;
+      double step = -sor * e.squaredNorm() / (2.0 * (g2 + damping));
+
+      sA.centre += step * gCS;
+      sA.radius = clampSignedRadius(sA.radius + step * gRS);
+      dA.centre += step * gCD;
+      dA.radius = clampSignedRadius(dA.radius + step * gRD);
+    }
+
   }
 }
 
