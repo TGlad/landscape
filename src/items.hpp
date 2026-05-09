@@ -443,7 +443,7 @@ auto tree_test = [&]()
   set.leaf_union = false;
   set.render_volume_only = true; 
 };
-static double bulge = 1.1;
+static double bulge = 1.3;
 
 auto hill_test = [&]()
 {

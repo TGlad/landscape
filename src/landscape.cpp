@@ -503,13 +503,14 @@ static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src
 
   const bool is_A_to_C = (src.parent_set != nullptr && dst.parent_set != nullptr
                           && src.parent_set->name == "icosahedron"
-                          && dst.parent_set->name == "hill-testb"
+                          && (dst.parent_set->name == "hill-test" || dst.parent_set->name == "hill-testb")
                           && src.type_to_set.size() > 0 && dst.type_to_set.size() > 0
-                          && src.type_to_set[0] == 1 && dst.type_to_set[0] == 0);
+                          && src.type_to_set[0] == 1);
   if (is_A_to_C)
   {
     printFanOrderingDiagnostics(*src.parent_set, src0, src_fan, "A (icosahedron)");
-    printFanOrderingDiagnostics(*dst.parent_set, dst0, dst_fan, "C (hill-testb)");
+    printFanOrderingDiagnostics(*dst.parent_set, dst0, dst_fan,
+                                "C (" + dst.parent_set->name + ")");
 
     std::cout << "[best-map A->C] shift=" << best_shift
               << " best_res=" << best_res << "\n";
@@ -1263,10 +1264,6 @@ void Landscape::applyConnectivity(int iterations)
           }
 
           intra_stats[si].add(residual);
-          std::cout << "[warmup-end][intra] " << set.name
-                    << " (" << i << "," << j << ")"
-                    << " order=" << order
-                    << " residual=" << residual << "\n";
         }
       }
     }
@@ -1325,17 +1322,11 @@ void Landscape::applyConnectivity(int iterations)
       {
         cross_stats.add(residual);
         cross_link_stats[link_key].add(residual);
-        std::cout << "[warmup-end][cross] " << link_key
-                  << " pair (" << si << "->" << di << ")"
-                  << " residual=" << residual << "\n";
       }
       else
       {
         inter_stats.add(residual);
         inter_link_stats[link_key].add(residual);
-        std::cout << "[warmup-end][inter] " << link_key
-                  << " pair (" << si << "->" << di << ")"
-                  << " residual=" << residual << "\n";
       }
     }
 
@@ -1378,9 +1369,9 @@ void Landscape::applyConnectivity(int iterations)
         const bool is_A_to_C = (lk.src != nullptr && lk.dst != nullptr
                                 && lk.src->parent_set != nullptr && lk.dst->parent_set != nullptr
                                 && lk.src->parent_set->name == "icosahedron"
-                                && lk.dst->parent_set->name == "hill-testb"
+              && (lk.dst->parent_set->name == "hill-test" || lk.dst->parent_set->name == "hill-testb")
                                 && lk.src->type_to_set.size() > 0 && lk.dst->type_to_set.size() > 0
-                                && lk.src->type_to_set[0] == 1 && lk.dst->type_to_set[0] == 0);
+              && lk.src->type_to_set[0] == 1);
         if (is_A_to_C)
         {
           printMobiusDecomposition("[mobius A->C]", lk.src->mobius);
@@ -1411,19 +1402,21 @@ void Landscape::applyConnectivity(int iterations)
           {
             if (owner_map != nullptr)
             {
-              // Overlap set spheres must inherit the owner's exact set-index
-              // correspondence; this avoids an independent rotation choice.
-              lk.dst_ti_for_src_ti = buildInheritedTypeMapBySetIndex(
-                  *lk.src, *lk.dst, *ol.mobius_owner, *owner_map);
+              // Overlap spheres D are in A-coordinates, but each D->dst link
+              // must follow the chosen cyclic shift for that branch (A->B/A->C).
+              // Build the local fan map from the selected dst center first,
+              // anchored by the paired overlap parent, then only fill gaps from
+              // owner inheritance.
+              lk.dst_ti_for_src_ti = buildFanTypeMap(*lk.src, *lk.dst,
+                                                     ol.src_anchor_set_ball,
+                                                     ol.dst_anchor_set_ball);
 
-              // Fallback to anchored fan mapping only for any unresolved entries.
-              std::vector<int> fallback = buildFanTypeMap(*lk.src, *lk.dst,
-                                                          ol.src_anchor_set_ball,
-                                                          ol.dst_anchor_set_ball);
-              for (int ti = 0; ti < (int)lk.dst_ti_for_src_ti.size() && ti < (int)fallback.size(); ti++)
+              std::vector<int> inherited = buildInheritedTypeMapBySetIndex(
+                  *lk.src, *lk.dst, *ol.mobius_owner, *owner_map);
+              for (int ti = 0; ti < (int)lk.dst_ti_for_src_ti.size() && ti < (int)inherited.size(); ti++)
               {
-                if (lk.dst_ti_for_src_ti[ti] < 0)
-                  lk.dst_ti_for_src_ti[ti] = fallback[ti];
+                if (lk.dst_ti_for_src_ti[ti] < 0 && inherited[ti] >= 0)
+                  lk.dst_ti_for_src_ti[ti] = inherited[ti];
               }
             }
             else

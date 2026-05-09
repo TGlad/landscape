@@ -43,7 +43,7 @@ int main()
   land.addSetsToTypes();
   land.applyConnectivity();
   land.verifyConnectivity();
-  land.printConnectivity(true);
+//  land.printConnectivity(true);
   land.calculateLeaves();
   land.matchUpDestinationBalls();
   land.outputCode();

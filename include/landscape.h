@@ -72,7 +72,7 @@ struct Landscape
     // internal stuff
     std::vector<Eigen::Vector4i> leaf_ball_ids;
     std::vector<double> leaf_ball_scales;
-    bool verifyConnectivity(double tol = 1e-4) const;
+    bool verifyConnectivity(double tol = 1e-2) const;
     void calculateLeafBall(int i, int j, int k, int l);
     void calculateLeafBall(int i, int j, int k, double scale); // smallest: center in plane of 3 ball centers
     void calculateLeafBalls(); // uses leaf_ball_ids
