@@ -594,20 +594,28 @@ static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src
   for (int shift = 0; shift < (int)dst_fan.size(); shift++)
     evaluateCandidate(shift);
 
-  const bool is_A_to_C = (src.parent_set != nullptr && dst.parent_set != nullptr
-                          && src.parent_set->name == "icosahedron"
-                          && (dst.parent_set->name == "hill-test" || dst.parent_set->name == "hill-testb")
-                          && src.type_to_set.size() > 0 && dst.type_to_set.size() > 0
-                          && src.type_to_set[0] == 1);
-  if (is_A_to_C)
+  const bool is_debug_link = (src.parent_set != nullptr && dst.parent_set != nullptr
+                              && src.parent_set->name == "icosahedron"
+                              && (dst.parent_set->name == "tree-test"
+                                  || dst.parent_set->name == "hill-test"
+                                  || dst.parent_set->name == "hill-testb")
+                              && src.type_to_set.size() > 0 && dst.type_to_set.size() > 0
+                              && (src.type_to_set[0] == 0 || src.type_to_set[0] == 1));
+  if (is_debug_link)
   {
-    printFanOrderingDiagnostics(*src.parent_set, src0, src_fan, "A (icosahedron)");
-    printFanOrderingDiagnostics(*dst.parent_set, dst0, dst_fan,
-                                "C (" + dst.parent_set->name + ")");
+    const std::string src_label = src.parent_set->name + "(" + std::to_string(src0) + ")";
+    const std::string dst_label = dst.parent_set->name + "(" + std::to_string(dst0) + ")";
+    printFanOrderingDiagnostics(*src.parent_set, src0, src_fan, "src " + src_label);
+    printFanOrderingDiagnostics(*dst.parent_set, dst0, dst_fan, "dst " + dst_label);
 
-    std::cout << "[best-map A->C] shift=" << best_shift
+    std::string tag = "A->?";
+    if (src0 == 0 && dst.parent_set->name == "tree-test") tag = "A->B";
+    if (src0 == 1 && (dst.parent_set->name == "hill-test" || dst.parent_set->name == "hill-testb")) tag = "A->C";
+
+    std::cout << "[best-map " << tag << "] shift=" << best_shift
               << " best_res=" << best_res << "\n";
-    std::cout << "[best-map A->C] set-id map:";
+    std::cout << "[best-map " << tag << "] src=" << src_label
+              << " dst=" << dst_label << " set-id map:";
     for (int sti = 0; sti < (int)best_map.size(); sti++)
     {
       int dti = best_map[sti];
@@ -1459,15 +1467,21 @@ void Landscape::applyConnectivity(int iterations)
         lk.dst_ti_for_src_ti = findBestNeighbourTypeMap(*lk.src, *lk.dst);
         computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true, &lk.dst_ti_for_src_ti);
 
-        const bool is_A_to_C = (lk.src != nullptr && lk.dst != nullptr
-                                && lk.src->parent_set != nullptr && lk.dst->parent_set != nullptr
-                                && lk.src->parent_set->name == "icosahedron"
-              && (lk.dst->parent_set->name == "hill-test" || lk.dst->parent_set->name == "hill-testb")
-                                && lk.src->type_to_set.size() > 0 && lk.dst->type_to_set.size() > 0
-              && lk.src->type_to_set[0] == 1);
-        if (is_A_to_C)
+        const bool is_debug_link = (lk.src != nullptr && lk.dst != nullptr
+                                    && lk.src->parent_set != nullptr && lk.dst->parent_set != nullptr
+                                    && lk.src->parent_set->name == "icosahedron"
+                                    && (lk.dst->parent_set->name == "tree-test"
+                                        || lk.dst->parent_set->name == "hill-test"
+                                        || lk.dst->parent_set->name == "hill-testb")
+                                    && lk.src->type_to_set.size() > 0 && lk.dst->type_to_set.size() > 0
+                                    && (lk.src->type_to_set[0] == 0 || lk.src->type_to_set[0] == 1));
+        if (is_debug_link)
         {
-          printMobiusDecomposition("[mobius A->C]", lk.src->mobius);
+          std::string tag = "A->?";
+          if (lk.src->type_to_set[0] == 0 && lk.dst->parent_set->name == "tree-test") tag = "A->B";
+          if (lk.src->type_to_set[0] == 1
+              && (lk.dst->parent_set->name == "hill-test" || lk.dst->parent_set->name == "hill-testb")) tag = "A->C";
+          printMobiusDecomposition("[mobius " + tag + "]", lk.src->mobius);
         }
       }
 
