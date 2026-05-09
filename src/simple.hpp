@@ -285,7 +285,7 @@ auto icosahedron = [&]()
   set.balls[0].dest_set = "tree-test";
   set.balls[0].dest_ball_id = 0;
   // set.balls[1].location.push_back(1);
-// #define TWISTED
+#define TWISTED
 #if defined TWISTED
   set.balls[1].dest_set = "hill-testb";
   set.balls[1].dest_ball_id = 0;

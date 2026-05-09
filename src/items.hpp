@@ -565,6 +565,19 @@ auto hill_testb = [&]()
   base_radii[11] = bulge*r;
   base_mobility[11] = 1.0;
 
+#if defined(HILL_TESTB_ROT72)
+  {
+    const double ang = 2.0 * pi / 5.0;
+    Eigen::Vector3d axis = Eigen::Vector3d::UnitZ();
+#if defined(HILL_TESTB_ROT72_TILTED_AXIS)
+    axis = Eigen::Vector3d(1.0, 1.0, 0.5).normalized();
+#endif
+    Eigen::Matrix3d R = Eigen::AngleAxisd(ang, axis).toRotationMatrix();
+    for (auto &c : base_centres)
+      c = R * c;
+  }
+#endif
+
   // new_index -> old_index in hill-test numbering.
   const int perm[12] = {1, 2, 6, 10, 5, 0, 3, 4, 7, 8, 9, 11};
 
