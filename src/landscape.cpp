@@ -381,6 +381,99 @@ static std::vector<int> buildFanTypeMap(const Landscape::Set::Ball &src,
   return map;
 }
 
+static void printMappedFanAdjacencyDiagnostics(const Landscape::Set::Ball &src,
+                                               const Landscape::Set::Ball &dst,
+                                               const std::vector<int> &dst_ti_for_src_ti,
+                                               const std::string &label)
+{
+  if (src.parent_set == nullptr || dst.parent_set == nullptr) return;
+  if (src.type_to_set.empty() || dst.type_to_set.empty()) return;
+
+  const int src0 = src.type_to_set[0];
+  const int dst0 = dst.type_to_set[0];
+  auto src_fan = orderedFanByCentroid(*src.parent_set, src0);
+  auto dst_fan = orderedFanByCentroid(*dst.parent_set, dst0);
+  if (src_fan.empty())
+  {
+    std::cout << "[mapped-fan] " << label << " no source fan\n";
+    return;
+  }
+
+  std::vector<int> mapped_fan;
+  mapped_fan.reserve(src_fan.size());
+  bool all_mapped = true;
+  for (int s_ball : src_fan)
+  {
+    int d_ball = mapSetBallThroughTypeMap(src, dst, dst_ti_for_src_ti, s_ball);
+    if (d_ball < 0) all_mapped = false;
+    mapped_fan.push_back(d_ball);
+  }
+
+  std::cout << "[mapped-fan] " << label
+            << " src_center=" << src0
+            << " dst_center=" << dst0
+            << " src:";
+  for (int b : src_fan) std::cout << " " << b;
+  std::cout << " mapped:";
+  for (int b : mapped_fan) std::cout << " " << b;
+  std::cout << "\n";
+
+  if (!all_mapped)
+  {
+    std::cout << "[mapped-fan] " << label << " incomplete mapping\n";
+    return;
+  }
+
+  bool center_ok = true;
+  bool ring_ok = true;
+  bool unique_ok = true;
+  std::set<int> used;
+  const int N = (int)mapped_fan.size();
+  for (int i = 0; i < N; i++)
+  {
+    int a = mapped_fan[i];
+    int b = mapped_fan[(i + 1) % N];
+    if (!used.insert(a).second) unique_ok = false;
+    if (a < 0 || a >= (int)dst.parent_set->balls.size())
+    {
+      center_ok = false;
+      ring_ok = false;
+      continue;
+    }
+    if (dst.parent_set->conn(dst0, a) <= 0) center_ok = false;
+    if (b < 0 || b >= (int)dst.parent_set->balls.size() || dst.parent_set->conn(a, b) <= 0)
+      ring_ok = false;
+  }
+
+  auto isCyclicShift = [&](const std::vector<int> &ref, const std::vector<int> &seq) {
+    if (ref.size() != seq.size()) return false;
+    int n = (int)ref.size();
+    for (int sh = 0; sh < n; sh++)
+    {
+      bool ok = true;
+      for (int i = 0; i < n; i++)
+      {
+        if (seq[i] != ref[(i + sh) % n])
+        {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return true;
+    }
+    return false;
+  };
+
+  bool cyclic_ok = isCyclicShift(dst_fan, mapped_fan);
+
+  std::cout << "[mapped-fan] " << label
+            << " center-adjacency=" << (center_ok ? "OK" : "BAD")
+            << " ring-adjacency=" << (ring_ok ? "OK" : "BAD")
+            << " unique=" << (unique_ok ? "OK" : "BAD")
+            << " cyclic-with-dst-fan=" << (cyclic_ok ? "OK" : "BAD")
+            << "\n";
+}
+
 static std::vector<int> buildInheritedTypeMapBySetIndex(
     const Landscape::Set::Ball &src,
     const Landscape::Set::Ball &dst,
@@ -1421,6 +1514,23 @@ void Landscape::applyConnectivity(int iterations)
             }
             else
               lk.dst_ti_for_src_ti = identityTypeMap(*lk.src, *lk.dst);
+
+            if (lk.src != nullptr && lk.dst != nullptr
+                && lk.src->parent_set != nullptr && lk.dst->parent_set != nullptr
+                && lk.src->parent_set->name == "tree-hill-test"
+                && !lk.src->type_to_set.empty())
+            {
+              const int d_center = lk.src->type_to_set[0];
+              if (d_center == 0 || d_center == 1)
+              {
+                std::string label = "D(" + std::to_string(d_center) + ")->"
+                                  + lk.dst->parent_set->name
+                                  + "(" + std::to_string(lk.dst->type_to_set[0]) + ")";
+                printMappedFanAdjacencyDiagnostics(*lk.src, *lk.dst,
+                                                   lk.dst_ti_for_src_ti,
+                                                   label);
+              }
+            }
             break;
           }
         }
