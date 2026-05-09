@@ -52,10 +52,9 @@ struct Landscape
     std::vector<int> leaf_ball_set;
     struct Overlap // supports oriented spheres and oriented planes
     {
-      Overlap(int ball0, int ball1, const std::string &destset, int dest_ball_id) : ball_0(ball0), ball_1(ball1), dest_set(destset), dest_ball_1_id(dest_ball_id) {}
+      Overlap(int ball0, int ball1, const std::string &destset) : ball_0(ball0), ball_1(ball1), dest_set(destset) {}
       int ball_0, ball_1;
       std::string dest_set;
-      int dest_ball_1_id; // dest_ball_0_id is balls[ball_0].dest_id
     };
     std::vector<Overlap> overlaps;
 
