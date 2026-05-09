@@ -285,8 +285,8 @@ auto icosahedron = [&]()
   set.balls[0].dest_set = "tree-test";
   set.balls[0].dest_ball_id = 0;
   // set.balls[1].location.push_back(1);
-  set.balls[1].dest_set = "hill-test";
-  set.balls[1].dest_ball_id = 1;
+  set.balls[1].dest_set = "hill-testb";
+  set.balls[1].dest_ball_id = 0;
 
   set.overlaps.push_back(Landscape::Set::Overlap(0,1, "tree-hill-test", 1));
 

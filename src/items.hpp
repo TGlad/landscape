@@ -443,7 +443,7 @@ auto tree_test = [&]()
   set.leaf_union = false;
   set.render_volume_only = true; 
 };
-static double bulge = 1.3;
+static double bulge = 1.1;
 
 auto hill_test = [&]()
 {
@@ -494,6 +494,41 @@ auto hill_test = [&]()
   set.balls[1].dest_ball_id = 1;
   set.overlaps.push_back(Landscape::Set::Overlap(0,1, "tree-hill-test", 1));
 */
+
+  set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
+  set.leaf_union = false;
+  set.render_volume_only = true; 
+};
+
+
+auto hill_testb = [&]()
+{
+  land.sets.push_back(Landscape::Set("hill-testb", 12));
+  Landscape::Set &set = land.sets.back();
+  set.colour = Eigen::Vector4d(0.85,0.45,0.25,1);
+  const double pi = 3.14159265;
+
+  double h = std::sqrt(1.0 / 5.0);
+  double r = std::sqrt(1.0 - h); // 0.743
+
+  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
+  for (int i = 0; i<5; i++)
+  {
+    float ang1 = (double)i * 2.0*pi/5.0;
+    float ang2 = ang1 + pi/5.0;
+
+    set.conn(0,1+i) = 2; // top fan
+    set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r, 0.0); // top ring
+    set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
+    set.conn(1+i, 6+i) = 2; // zig
+    set.conn(6+i, 1+ (i+1)%5) = 2; // zag
+    double scale = bulge;
+    double moveability = 1.0;//(6+i)==6 || (6+i)==10 ? 0.0 : 1.0;
+    set.balls[6+i].initSphere(scale*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -1.0), scale*r, moveability); // bottom ring
+    set.conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
+    set.conn(6+i,11) = 2; // bottom fan
+  }
+  set.balls[11].initSphere(Eigen::Vector3d(0,0,-bulge*bulge), bulge*bulge*r);
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;

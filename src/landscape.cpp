@@ -9,6 +9,7 @@ static const double pi = std::acos(-1.0);
 #include <iostream>
 #include <vector>
 #include <set>
+#include <unordered_map>
 #include <tuple>
 #include <algorithm>
 #include <functional>
@@ -203,68 +204,144 @@ static std::vector<int> orderedFanByCentroid(const Landscape::Set &set, int cent
 
   if (neigh.size() <= 1) return neigh;
 
+  // Topology-first ring ordering: walk the induced ring graph among neighbours
+  // of center_ball using edges with conn > 0.
+  std::unordered_map<int, std::vector<int>> ring_adj;
+  for (int a : neigh) ring_adj[a] = {};
+  for (int i = 0; i < (int)neigh.size(); i++)
+  {
+    for (int j = i + 1; j < (int)neigh.size(); j++)
+    {
+      int a = neigh[i], b = neigh[j];
+      if (set.conn(a, b) > 0)
+      {
+        ring_adj[a].push_back(b);
+        ring_adj[b].push_back(a);
+      }
+    }
+  }
+
+  bool ring_like = true;
+  for (int a : neigh)
+    if ((int)ring_adj[a].size() != 2)
+      ring_like = false;
+
+  std::vector<int> ordered;
+  if (ring_like)
+  {
+    int start = *std::min_element(neigh.begin(), neigh.end());
+    int prev = -1;
+    int cur = start;
+    for (int step = 0; step < (int)neigh.size(); step++)
+    {
+      ordered.push_back(cur);
+      int n0 = ring_adj[cur][0];
+      int n1 = ring_adj[cur][1];
+      int next = (n0 == prev) ? n1 : n0;
+      prev = cur;
+      cur = next;
+      if (cur == start && step + 1 < (int)neigh.size())
+      {
+        ring_like = false;
+        break;
+      }
+    }
+  }
+
+  if (!ring_like || (int)ordered.size() != (int)neigh.size())
+  {
+    // Fallback for non-ring neighbourhoods: geometric angular ordering.
+    ordered.clear();
+
+    Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
+    for (const auto &b : set.balls) centroid += b.centre;
+    centroid /= (double)std::max(1, (int)set.balls.size());
+
+    const Eigen::Vector3d C0 = set.balls[center_ball].centre;
+    Eigen::Vector3d axis = C0 - centroid;
+    if (axis.squaredNorm() < 1e-20) axis = Eigen::Vector3d(0, 0, 1);
+    axis.normalize();
+
+    auto tangentComponent = [&](int bi) {
+      Eigen::Vector3d v = set.balls[bi].centre - C0;
+      return v - v.dot(axis) * axis;
+    };
+
+    Eigen::Vector3d u = tangentComponent(neigh[0]);
+    if (u.squaredNorm() < 1e-20)
+    {
+      for (int i = 1; i < (int)neigh.size(); i++)
+      {
+        u = tangentComponent(neigh[i]);
+        if (u.squaredNorm() >= 1e-20) break;
+      }
+    }
+    if (u.squaredNorm() < 1e-20)
+    {
+      std::sort(neigh.begin(), neigh.end());
+      ordered = neigh;
+    }
+    else
+    {
+      u.normalize();
+      Eigen::Vector3d v_axis = axis.cross(u);
+      if (v_axis.squaredNorm() < 1e-20)
+      {
+        std::sort(neigh.begin(), neigh.end());
+        ordered = neigh;
+      }
+      else
+      {
+        v_axis.normalize();
+        std::vector<std::pair<double, int>> ang;
+        ang.reserve(neigh.size());
+        for (int nb : neigh)
+        {
+          Eigen::Vector3d t = tangentComponent(nb);
+          if (t.squaredNorm() < 1e-20)
+          {
+            ang.push_back({0.0, nb});
+            continue;
+          }
+          t.normalize();
+          double a = std::atan2(t.dot(v_axis), t.dot(u));
+          ang.push_back({a, nb});
+        }
+
+        std::sort(ang.begin(), ang.end(), [](const auto &A, const auto &B) {
+          if (A.first == B.first) return A.second < B.second;
+          return A.first < B.first;
+        });
+        ordered.reserve(ang.size());
+        for (const auto &p : ang) ordered.push_back(p.second);
+      }
+    }
+  }
+
   Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
   for (const auto &b : set.balls) centroid += b.centre;
   centroid /= (double)std::max(1, (int)set.balls.size());
 
   const Eigen::Vector3d C0 = set.balls[center_ball].centre;
-  Eigen::Vector3d axis = C0 - centroid;
-  if (axis.squaredNorm() < 1e-20) axis = Eigen::Vector3d(0, 0, 1);
-  axis.normalize();
-
-  auto tangentComponent = [&](int bi) {
-    Eigen::Vector3d v = set.balls[bi].centre - C0;
-    return v - v.dot(axis) * axis;
-  };
-
-  Eigen::Vector3d u = tangentComponent(neigh[0]);
-  if (u.squaredNorm() < 1e-20)
+  // Handedness convention: mean ring normal should align with center->centroid.
+  Eigen::Vector3d outward = centroid - C0;
+  Eigen::Vector3d mean_n = Eigen::Vector3d::Zero();
+  for (int i = 0; i < (int)ordered.size(); i++)
   {
-    for (int i = 1; i < (int)neigh.size(); i++)
-    {
-      u = tangentComponent(neigh[i]);
-      if (u.squaredNorm() >= 1e-20) break;
-    }
-  }
-  if (u.squaredNorm() < 1e-20)
-  {
-    // Degenerate fan: deterministic fallback by id.
-    std::sort(neigh.begin(), neigh.end());
-    return neigh;
-  }
-  u.normalize();
-  Eigen::Vector3d v_axis = axis.cross(u);
-  if (v_axis.squaredNorm() < 1e-20)
-  {
-    std::sort(neigh.begin(), neigh.end());
-    return neigh;
-  }
-  v_axis.normalize();
-
-  std::vector<std::pair<double, int>> ang;
-  ang.reserve(neigh.size());
-  for (int nb : neigh)
-  {
-    Eigen::Vector3d t = tangentComponent(nb);
-    if (t.squaredNorm() < 1e-20)
-    {
-      ang.push_back({0.0, nb});
-      continue;
-    }
-    t.normalize();
-    double a = std::atan2(t.dot(v_axis), t.dot(u));
-    ang.push_back({a, nb});
+    int a = ordered[i];
+    int b = ordered[(i + 1) % ordered.size()];
+    Eigen::Vector3d va = set.balls[a].centre - C0;
+    Eigen::Vector3d vb = set.balls[b].centre - C0;
+    mean_n += va.cross(vb);
   }
 
-  std::sort(ang.begin(), ang.end(), [](const auto &A, const auto &B) {
-    if (A.first == B.first) return A.second < B.second;
-    return A.first < B.first;
-  });
+  if (mean_n.squaredNorm() > 1e-20 && outward.squaredNorm() > 1e-20)
+  {
+    if (mean_n.dot(outward) < 0.0)
+      std::reverse(ordered.begin(), ordered.end());
+  }
 
-  std::vector<int> out;
-  out.reserve(ang.size());
-  for (const auto &p : ang) out.push_back(p.second);
-  return out;
+  return ordered;
 }
 
 static std::vector<int> buildFanTypeMap(const Landscape::Set::Ball &src,
@@ -304,6 +381,26 @@ static std::vector<int> buildFanTypeMap(const Landscape::Set::Ball &src,
   return map;
 }
 
+static std::vector<int> buildInheritedTypeMapBySetIndex(
+    const Landscape::Set::Ball &src,
+    const Landscape::Set::Ball &dst,
+    const Landscape::Set::Ball &owner,
+    const std::vector<int> &owner_map)
+{
+  std::vector<int> map = identityTypeMap(src, dst);
+  for (int sti = 0; sti < (int)map.size(); sti++)
+  {
+    if (sti < 0 || sti >= (int)src.type_to_set.size()) continue;
+    const int src_set_ball = src.type_to_set[sti];
+    const int dst_set_ball = mapSetBallThroughTypeMap(owner, *owner.dest_ball, owner_map, src_set_ball);
+    if (dst_set_ball < 0 || dst_set_ball >= (int)dst.set_to_type.size()) continue;
+    const int dst_ti = dst.set_to_type[dst_set_ball];
+    if (dst_ti < 0 || dst_ti >= (int)dst.type_to_set.size()) continue;
+    map[sti] = dst_ti;
+  }
+  return map;
+}
+
 static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src,
                                                  const Landscape::Set::Ball &dst)
 {
@@ -315,12 +412,50 @@ static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src
   const int dst0 = dst.type_to_set[0];
   auto src_fan = orderedFanByCentroid(*src.parent_set, src0);
   auto dst_fan = orderedFanByCentroid(*dst.parent_set, dst0);
+
+  auto printFanOrderingDiagnostics = [&](const Landscape::Set &set,
+                                         int center_ball,
+                                         const std::vector<int> &fan,
+                                         const std::string &label)
+  {
+    std::cout << "[fan-order] " << label
+              << " center=" << center_ball
+              << " fan:";
+    for (int b : fan) std::cout << " " << b;
+    std::cout << "\n";
+
+    if (fan.size() < 2)
+    {
+      std::cout << "[fan-order] " << label << " insufficient fan size\n";
+      return;
+    }
+
+    bool all_ok = true;
+    int N = (int)fan.size();
+    for (int i = 0; i < N; i++)
+    {
+      int a = fan[i];
+      int b = fan[(i + 1) % N];
+      int c = set.conn(a, b);
+      bool ok = c > 0;
+      all_ok = all_ok && ok;
+      std::cout << "[fan-order] " << label
+                << " edge " << a << "-" << b
+                << " conn=" << c
+                << (ok ? " OK" : " BAD")
+                << "\n";
+    }
+    std::cout << "[fan-order] " << label
+              << " ring-adjacency=" << (all_ok ? "OK" : "BAD")
+              << "\n";
+  };
   if (src_fan.empty() || src_fan.size() != dst_fan.size())
     return best_map;
 
   double best_res = std::numeric_limits<double>::infinity();
+  int best_shift = -1;
 
-  auto evaluateCandidate = [&](bool reverse, int shift) {
+  auto evaluateCandidate = [&](int shift) {
     std::vector<int> test_map = best_map;
     if (!test_map.empty()) test_map[0] = 0;
 
@@ -328,7 +463,7 @@ static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src
     for (int i = 0; i < N; i++)
     {
       const int s_ball = src_fan[i];
-      const int j = reverse ? (shift - i + N) % N : (shift + i) % N;
+      const int j = (shift + i) % N;
       const int d_ball = dst_fan[j];
 
       if (s_ball < 0 || s_ball >= (int)src.set_to_type.size()) return;
@@ -359,13 +494,88 @@ static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src
     {
       best_res = res;
       best_map = test_map;
+      best_shift = shift;
     }
   };
 
   for (int shift = 0; shift < (int)dst_fan.size(); shift++)
-    evaluateCandidate(/*reverse=*/false, shift);
+    evaluateCandidate(shift);
+
+  const bool is_A_to_C = (src.parent_set != nullptr && dst.parent_set != nullptr
+                          && src.parent_set->name == "icosahedron"
+                          && dst.parent_set->name == "hill-testb"
+                          && src.type_to_set.size() > 0 && dst.type_to_set.size() > 0
+                          && src.type_to_set[0] == 1 && dst.type_to_set[0] == 0);
+  if (is_A_to_C)
+  {
+    printFanOrderingDiagnostics(*src.parent_set, src0, src_fan, "A (icosahedron)");
+    printFanOrderingDiagnostics(*dst.parent_set, dst0, dst_fan, "C (hill-testb)");
+
+    std::cout << "[best-map A->C] shift=" << best_shift
+              << " best_res=" << best_res << "\n";
+    std::cout << "[best-map A->C] set-id map:";
+    for (int sti = 0; sti < (int)best_map.size(); sti++)
+    {
+      int dti = best_map[sti];
+      if (sti < 0 || sti >= (int)src.type_to_set.size()) continue;
+      if (dti < 0 || dti >= (int)dst.type_to_set.size()) continue;
+      std::cout << " " << src.type_to_set[sti] << "->" << dst.type_to_set[dti];
+    }
+    std::cout << "\n";
+  }
 
   return best_map;
+}
+
+static void rotationAxisAngleFromR(const Eigen::Matrix3d &R,
+                                   Eigen::Vector3d &axis,
+                                   double &angle)
+{
+  double c = std::clamp((R.trace() - 1.0) * 0.5, -1.0, 1.0);
+  angle = std::acos(c);
+
+  if (angle < 1e-10)
+  {
+    axis = Eigen::Vector3d(1.0, 0.0, 0.0);
+    return;
+  }
+
+  Eigen::Vector3d v(R(2,1) - R(1,2),
+                    R(0,2) - R(2,0),
+                    R(1,0) - R(0,1));
+  if (v.norm() > 1e-10)
+  {
+    axis = v.normalized();
+    return;
+  }
+
+  // Near-180-degree fallback.
+  axis.x() = std::sqrt(std::max(0.0, (R(0,0) + 1.0) * 0.5));
+  axis.y() = std::sqrt(std::max(0.0, (R(1,1) + 1.0) * 0.5));
+  axis.z() = std::sqrt(std::max(0.0, (R(2,2) + 1.0) * 0.5));
+  if (R(0,1) < 0.0) axis.y() = -axis.y();
+  if (R(0,2) < 0.0) axis.z() = -axis.z();
+  if (axis.norm() < 1e-12) axis = Eigen::Vector3d(1.0, 0.0, 0.0);
+  else axis.normalize();
+}
+
+static void printMobiusDecomposition(const std::string &label,
+                                     const Landscape::Set::Ball::Mobius &mob)
+{
+  Eigen::Vector3d axis;
+  double angle = 0.0;
+  rotationAxisAngleFromR(mob.R, axis, angle);
+  std::cout << label
+            << " similarity=" << (mob.is_similarity ? 1 : 0)
+            << " scale=" << mob.s
+            << " angle_rad=" << angle
+            << " angle_deg=" << (180.0 * angle / pi)
+            << " axis=(" << axis.transpose() << ")"
+            << " T=(" << mob.T.transpose() << ")"
+            << " |T|=" << mob.T.norm()
+            << " C=(" << mob.C.transpose() << ")"
+            << " |C|=" << mob.C.norm()
+            << "\n";
 }
 
 // Decompose an O(4,1) matrix M into the GLSL-friendly T,C,s,R form stored in
@@ -1000,6 +1210,160 @@ void Landscape::applyConnectivity(int iterations)
     return {gC, gr};
   };
 
+  auto reportWarmupDiagnostics = [&]() {
+    std::cout << "[warmup-end] ===== constraint diagnostics =====\n";
+
+    struct Stat {
+      int n = 0;
+      double sum2 = 0.0;
+      double max_abs = 0.0;
+      void add(double v)
+      {
+        double a = std::abs(v);
+        n++;
+        sum2 += v * v;
+        if (a > max_abs) max_abs = a;
+      }
+    };
+
+    auto rms = [](const Stat &s) {
+      return s.n > 0 ? std::sqrt(s.sum2 / (double)s.n) : 0.0;
+    };
+
+    // 1) Intra-constraint errors by set.
+    std::vector<Stat> intra_stats(sets.size());
+    for (int si = 0; si < (int)sets.size(); si++)
+    {
+      auto &set = sets[si];
+      int n = (int)set.balls.size();
+      for (int i = 0; i < n; i++)
+      {
+        for (int j = 0; j < i; j++)
+        {
+          int order = set.conn(i, j);
+          const auto &bi = set.balls[i];
+          const auto &bj = set.balls[j];
+
+          double ri = clampSignedRadius(bi.radius);
+          double rj = clampSignedRadius(bj.radius);
+          double d = (bi.centre - bj.centre).norm();
+          double residual = 0.0;
+
+          if (order <= 0)
+          {
+            // Same quantity as solver branch: err = d - (ri+rj+k_{order==0}).
+            double err = d - (ri + rj + (order == 0 ? k : 0.0));
+            residual = (order == 0) ? std::min(0.0, err) : err;
+          }
+          else
+          {
+            double cos_theta = (d*d - ri*ri - rj*rj) / (2.0 * ri * rj);
+            double theta = std::acos(std::clamp(cos_theta, -1.0, 1.0));
+            residual = pi / (double)order - theta;
+          }
+
+          intra_stats[si].add(residual);
+          std::cout << "[warmup-end][intra] " << set.name
+                    << " (" << i << "," << j << ")"
+                    << " order=" << order
+                    << " residual=" << residual << "\n";
+        }
+      }
+    }
+
+    for (int si = 0; si < (int)sets.size(); si++)
+    {
+      std::cout << "[warmup-end][intra-summary] " << sets[si].name
+                << " n=" << intra_stats[si].n
+                << " rms=" << rms(intra_stats[si])
+                << " max_abs=" << intra_stats[si].max_abs << "\n";
+    }
+
+    // Classify overlap links so we can separate primary inter constraints from cross-overlap constraints.
+    std::set<std::tuple<Set::Ball*, Set::Ball*>> overlap_link_keys;
+    for (const auto &ol : overlap_links)
+      overlap_link_keys.insert(std::make_tuple(ol.ov_ball, ol.dst_ball));
+
+    Stat inter_stats, cross_stats;
+    std::map<std::string, Stat> inter_link_stats;
+    std::map<std::string, Stat> cross_link_stats;
+
+    // 2) Inter-constraints and 3) overlap cross-constraints.
+    for (const auto &mp : mobius_pairs)
+    {
+      Set::Ball &src_ball = *mp.src;
+      Set::Ball &dst_ball = *mp.dst;
+
+      int si = src_ball.type_to_set[mp.src_ti];
+      int di = dst_ball.type_to_set[mp.dst_ti];
+      Set::Ball &sA = src_ball.parent_set->balls[si];
+      Set::Ball &dA = dst_ball.parent_set->balls[di];
+
+      bool is_cross = overlap_link_keys.count(std::make_tuple(mp.src, mp.dst)) > 0;
+
+      const Set::Ball::Mobius *mobius_to_use = &src_ball.mobius;
+      if (is_cross)
+      {
+        for (const auto &ol : overlap_links)
+        {
+          if (ol.ov_ball == mp.src && ol.dst_ball == mp.dst)
+          {
+            mobius_to_use = &ol.mobius_owner->mobius;
+            break;
+          }
+        }
+      }
+
+      Vec5 sigma_s = conformal_sphere(sA.centre, clampSignedRadius(sA.radius));
+      Vec5 sigma_d = conformal_sphere(dA.centre, clampSignedRadius(dA.radius));
+      double residual = (mobius_to_use->M * sigma_s - sigma_d).norm();
+
+      std::string link_key = src_ball.parent_set->name + " ball " + std::to_string(src_ball.type_to_set[0])
+                           + " -> " + dst_ball.parent_set->name + " ball " + std::to_string(dst_ball.type_to_set[0]);
+
+      if (is_cross)
+      {
+        cross_stats.add(residual);
+        cross_link_stats[link_key].add(residual);
+        std::cout << "[warmup-end][cross] " << link_key
+                  << " pair (" << si << "->" << di << ")"
+                  << " residual=" << residual << "\n";
+      }
+      else
+      {
+        inter_stats.add(residual);
+        inter_link_stats[link_key].add(residual);
+        std::cout << "[warmup-end][inter] " << link_key
+                  << " pair (" << si << "->" << di << ")"
+                  << " residual=" << residual << "\n";
+      }
+    }
+
+    for (const auto &kv : inter_link_stats)
+    {
+      std::cout << "[warmup-end][inter-summary] " << kv.first
+                << " n=" << kv.second.n
+                << " rms=" << rms(kv.second)
+                << " max_abs=" << kv.second.max_abs << "\n";
+    }
+
+    for (const auto &kv : cross_link_stats)
+    {
+      std::cout << "[warmup-end][cross-summary] " << kv.first
+                << " n=" << kv.second.n
+                << " rms=" << rms(kv.second)
+                << " max_abs=" << kv.second.max_abs << "\n";
+    }
+
+    std::cout << "[warmup-end][inter-total] n=" << inter_stats.n
+              << " rms=" << rms(inter_stats)
+              << " max_abs=" << inter_stats.max_abs << "\n";
+    std::cout << "[warmup-end][cross-total] n=" << cross_stats.n
+              << " rms=" << rms(cross_stats)
+              << " max_abs=" << cross_stats.max_abs << "\n";
+    std::cout << "[warmup-end] =================================\n";
+  };
+
   const int warmup_iters = 1500;
   const int effective_warmup_iters = fit_mobius_transform ? warmup_iters : 0;
   for (int it = 0; it < iterations + effective_warmup_iters; it++)
@@ -1010,6 +1374,17 @@ void Landscape::applyConnectivity(int iterations)
       {
         lk.dst_ti_for_src_ti = findBestNeighbourTypeMap(*lk.src, *lk.dst);
         computeMobiusTransform(*lk.src, *lk.dst, /*quiet=*/true, &lk.dst_ti_for_src_ti);
+
+        const bool is_A_to_C = (lk.src != nullptr && lk.dst != nullptr
+                                && lk.src->parent_set != nullptr && lk.dst->parent_set != nullptr
+                                && lk.src->parent_set->name == "icosahedron"
+                                && lk.dst->parent_set->name == "hill-testb"
+                                && lk.src->type_to_set.size() > 0 && lk.dst->type_to_set.size() > 0
+                                && lk.src->type_to_set[0] == 1 && lk.dst->type_to_set[0] == 0);
+        if (is_A_to_C)
+        {
+          printMobiusDecomposition("[mobius A->C]", lk.src->mobius);
+        }
       }
 
       // Add overlap links only after warmup so fitting is unaffected by overlaps.
@@ -1035,9 +1410,22 @@ void Landscape::applyConnectivity(int iterations)
           if (lk.src == ol.ov_ball && lk.dst == ol.dst_ball)
           {
             if (owner_map != nullptr)
-              lk.dst_ti_for_src_ti = buildFanTypeMap(*lk.src, *lk.dst,
-                                                     ol.src_anchor_set_ball,
-                                                     ol.dst_anchor_set_ball);
+            {
+              // Overlap set spheres must inherit the owner's exact set-index
+              // correspondence; this avoids an independent rotation choice.
+              lk.dst_ti_for_src_ti = buildInheritedTypeMapBySetIndex(
+                  *lk.src, *lk.dst, *ol.mobius_owner, *owner_map);
+
+              // Fallback to anchored fan mapping only for any unresolved entries.
+              std::vector<int> fallback = buildFanTypeMap(*lk.src, *lk.dst,
+                                                          ol.src_anchor_set_ball,
+                                                          ol.dst_anchor_set_ball);
+              for (int ti = 0; ti < (int)lk.dst_ti_for_src_ti.size() && ti < (int)fallback.size(); ti++)
+              {
+                if (lk.dst_ti_for_src_ti[ti] < 0)
+                  lk.dst_ti_for_src_ti[ti] = fallback[ti];
+              }
+            }
             else
               lk.dst_ti_for_src_ti = identityTypeMap(*lk.src, *lk.dst);
             break;
@@ -1045,7 +1433,37 @@ void Landscape::applyConnectivity(int iterations)
         }
       }
 
+      // Targeted debug: report overlap-link destination ids for requested balls.
+      auto printMappedOverlapBall = [&](const std::string &src_set_name,
+                                        int src_ball_id,
+                                        const std::string &dst_set_name)
+      {
+        for (const auto &lk : mobius_links)
+        {
+          if (lk.src == nullptr || lk.dst == nullptr) continue;
+          if (lk.src->parent_set == nullptr || lk.dst->parent_set == nullptr) continue;
+          if (lk.src->parent_set->name != src_set_name) continue;
+          if (lk.dst->parent_set->name != dst_set_name) continue;
+
+          int mapped = mapSetBallThroughTypeMap(*lk.src, *lk.dst, lk.dst_ti_for_src_ti, src_ball_id);
+          if (mapped >= 0)
+          {
+            std::cout << "[overlap-map] " << src_set_name << " ball " << src_ball_id
+                      << " links to " << dst_set_name << " ball " << mapped
+                      << " (via src center ball " << lk.src->type_to_set[0]
+                      << " -> dst center ball " << lk.dst->type_to_set[0] << ")\n";
+            return;
+          }
+        }
+        std::cout << "[overlap-map] no mapping found for " << src_set_name
+                  << " ball " << src_ball_id << " to " << dst_set_name << "\n";
+      };
+
+      printMappedOverlapBall("tree-hill-test", 6, "tree-test");
+      printMappedOverlapBall("tree-hill-test", 3, "hill-testb");
+
       rebuildMobiusPairs();
+      reportWarmupDiagnostics();
       warmup_done = true;
     }
 
