@@ -1572,53 +1572,20 @@ void Landscape::applyConnectivity(int iterations)
 
             if (lk.src != nullptr && lk.dst != nullptr
                 && lk.src->parent_set != nullptr && lk.dst->parent_set != nullptr
-                && lk.src->parent_set->name == "tree-hill-test"
-                && !lk.src->type_to_set.empty())
+                && !lk.src->type_to_set.empty() && !lk.dst->type_to_set.empty())
             {
-              const int d_center = lk.src->type_to_set[0];
-              if (d_center == 0 || d_center == 1)
-              {
-                std::string label = "D(" + std::to_string(d_center) + ")->"
-                                  + lk.dst->parent_set->name
-                                  + "(" + std::to_string(lk.dst->type_to_set[0]) + ")";
-                printMappedFanAdjacencyDiagnostics(*lk.src, *lk.dst,
-                                                   lk.dst_ti_for_src_ti,
-                                                   label);
-              }
+              std::string label = lk.src->parent_set->name
+                                + "(" + std::to_string(lk.src->type_to_set[0]) + ")->"
+                                + lk.dst->parent_set->name
+                                + "(" + std::to_string(lk.dst->type_to_set[0]) + ")";
+              printMappedFanAdjacencyDiagnostics(*lk.src, *lk.dst,
+                                                 lk.dst_ti_for_src_ti,
+                                                 label);
             }
             break;
           }
         }
       }
-
-      // Targeted debug: report overlap-link destination ids for requested balls.
-      auto printMappedOverlapBall = [&](const std::string &src_set_name,
-                                        int src_ball_id,
-                                        const std::string &dst_set_name)
-      {
-        for (const auto &lk : mobius_links)
-        {
-          if (lk.src == nullptr || lk.dst == nullptr) continue;
-          if (lk.src->parent_set == nullptr || lk.dst->parent_set == nullptr) continue;
-          if (lk.src->parent_set->name != src_set_name) continue;
-          if (lk.dst->parent_set->name != dst_set_name) continue;
-
-          int mapped = mapSetBallThroughTypeMap(*lk.src, *lk.dst, lk.dst_ti_for_src_ti, src_ball_id);
-          if (mapped >= 0)
-          {
-            std::cout << "[overlap-map] " << src_set_name << " ball " << src_ball_id
-                      << " links to " << dst_set_name << " ball " << mapped
-                      << " (via src center ball " << lk.src->type_to_set[0]
-                      << " -> dst center ball " << lk.dst->type_to_set[0] << ")\n";
-            return;
-          }
-        }
-        std::cout << "[overlap-map] no mapping found for " << src_set_name
-                  << " ball " << src_ball_id << " to " << dst_set_name << "\n";
-      };
-
-      printMappedOverlapBall("tree-hill-test", 6, "tree-test");
-      printMappedOverlapBall("tree-hill-test", 3, "hill-testb");
 
       rebuildMobiusPairs();
       reportWarmupDiagnostics();

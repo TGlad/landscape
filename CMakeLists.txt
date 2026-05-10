@@ -10,7 +10,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 include_directories(include)
-add_compile_options(-ggdb -O0)
+#add_compile_options(-ggdb -O0)
 
 add_executable(hello
     src/ball.cpp
