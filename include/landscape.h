@@ -82,6 +82,7 @@ struct Landscape
     Set &operator=(const Set &o);
     Set &operator=(Set &&o);
   };
+  void generateOverlapLayouts();
   std::deque<Set> sets;
   const Set &set(const std::string &set_name)
   {

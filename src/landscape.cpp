@@ -381,6 +381,47 @@ static std::vector<int> buildFanTypeMap(const Landscape::Set::Ball &src,
   return map;
 }
 
+void Landscape::generateOverlapLayouts()
+{
+  for (auto &A: sets)
+  {
+    for (int i = 0; i<(int)A.balls.size(); i++)
+    {
+      if (A.balls[i].dest_set == "")
+        continue;
+      for (int j = i+1; j<(int)A.balls.size(); j++)
+      {
+        if (A.balls[j].dest_set == "")
+          continue;
+        if (A.conn(i,j)>0) // substitution spheres overlap
+        {
+          sets.push_back(A); // makes separate copy of set A
+          Landscape::Set &D = sets.back();
+          Set *B = nullptr, *C = nullptr;
+          for (auto &s : sets)
+          {
+            if (s.name == A.balls[i].dest_set)
+              B = &s;
+            if (s.name == A.balls[j].dest_set)
+              C = &s;
+          }
+          D.name = A.name + "_overlap_" + std::to_string(i) + "_" + std::to_string(j);
+          D.colour = (B->colour + C->colour)/2.0;
+          for (auto &ball: D.balls)
+          {
+            ball.mobility = 1.0;
+            ball.dest_set = "";
+            ball.location.clear();
+          }
+    //      D.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
+          A.overlaps.push_back(Landscape::Set::Overlap(i,j, D.name)); // easy reference to the overlaps
+        } 
+      }
+    }
+  }
+}
+
+
 static void printMappedFanAdjacencyDiagnostics(const Landscape::Set::Ball &src,
                                                const Landscape::Set::Ball &dst,
                                                const std::vector<int> &dst_ti_for_src_ti,

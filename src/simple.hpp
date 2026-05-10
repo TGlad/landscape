@@ -294,8 +294,6 @@ auto icosahedron = [&]()
   set.balls[1].dest_ball_id = 1;
 #endif
 
-  set.overlaps.push_back(Landscape::Set::Overlap(0,1, "tree-hill-test"));
-
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;
   set.render_volume_only = true; 
