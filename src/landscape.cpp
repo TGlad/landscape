@@ -409,11 +409,12 @@ void Landscape::generateOverlapLayouts()
           D.colour = (B->colour + C->colour)/2.0;
           for (auto &ball: D.balls)
           {
-            ball.mobility = 1.0;
+            ball.mobility = 20.0;
             ball.dest_set = "";
             ball.location.clear();
           }
-    //      D.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
+          D.leaf_balls.clear();
+          D.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
           A.overlaps.push_back(Landscape::Set::Overlap(i,j, D.name)); // easy reference to the overlaps
         } 
       }
