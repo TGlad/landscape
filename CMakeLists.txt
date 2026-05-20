@@ -20,5 +20,4 @@ add_executable(hello
     src/simple.hpp
     src/type.cpp
 )
-
 target_link_libraries(hello Eigen3::Eigen)
