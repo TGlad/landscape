@@ -4,6 +4,7 @@
 
 int main()
 {
+  std::cout << "hello" << std::endl;
   Landscape land;
 
   #include "simple.hpp" // define some simple sets

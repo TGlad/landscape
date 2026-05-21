@@ -282,13 +282,13 @@ auto icosahedron = [&]()
   double H = std::sqrt(4.0*h*h + (z-h)*(z-h));
   set.balls[11].initSphere(Eigen::Vector3d(0,0,-z), std::sqrt(H*H - r*r), mobility);
 
-  set.balls[1].dest_set = "tree-test";
-  set.balls[1].dest_ball_id = 0;
+  set.balls[7].dest_set = "tree-test";
+  set.balls[7].dest_ball_id = 0;
   // set.balls[1].location.push_back(1);
   set.balls[6].dest_set = "hill-test";
   set.balls[6].dest_ball_id = 1;
 
-  set.overlaps.push_back(Landscape::Set::Overlap(1,6, "tree-hill-test", 1));
+  set.overlaps.push_back(Landscape::Set::Overlap(7,6, "tree-hill-test", 1));
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;

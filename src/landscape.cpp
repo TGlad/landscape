@@ -258,12 +258,13 @@ static std::vector<int> orderedFanByCentroid(const Landscape::Set &set, int cent
   if (axis.squaredNorm() < 1e-20) axis = Eigen::Vector3d(0, 0, 1);
   axis.normalize();
 
-  auto tangentComponent = [&](int bi) {
-    Eigen::Vector3d v = set.balls[bi].centre - C0;
-    return v - v.dot(axis) * axis;
+  auto tangentComponent = [&](int bi2) -> Eigen::Vector3d {
+    Eigen::Vector3d v2 = set.balls[bi2].centre - C0;
+    return v2 - (v2.dot(axis) * axis);
   };
 
   Eigen::Vector3d u = tangentComponent(neigh[0]);
+
   if (u.squaredNorm() < 1e-20)
   {
     for (int i = 1; i < (int)neigh.size(); i++)
@@ -274,12 +275,14 @@ static std::vector<int> orderedFanByCentroid(const Landscape::Set &set, int cent
   }
   if (u.squaredNorm() < 1e-20)
   {
+    std::cout << "u tiny" << std::endl;
     return connectivityFanFallback();
   }
   u.normalize();
   Eigen::Vector3d v_axis = axis.cross(u);
   if (v_axis.squaredNorm() < 1e-20)
   {
+    std::cout << "v tiny" << std::endl;
     return connectivityFanFallback();
   }
   v_axis.normalize();
@@ -298,7 +301,6 @@ static std::vector<int> orderedFanByCentroid(const Landscape::Set &set, int cent
     double a = std::atan2(t.dot(v_axis), t.dot(u));
     ang.push_back({a, nb});
   }
-
   std::sort(ang.begin(), ang.end(), [](const auto &A, const auto &B) {
     if (A.first == B.first) return A.second < B.second;
     return A.first < B.first;
@@ -510,6 +512,7 @@ static std::vector<int> buildFanTypeMap(const Landscape::Set::Ball &src,
 
   const int src0 = src.type_to_set[0];
   const int dst0 = dst.type_to_set[0];
+  std::cout << "building fan by centroid" << std::endl;
   auto src_fan = orderedFanByCentroid(*src.parent_set, src0);
   auto dst_fan = orderedFanByCentroid(*dst.parent_set, dst0);
   if (src_fan.empty() || src_fan.size() != dst_fan.size()) return map;
