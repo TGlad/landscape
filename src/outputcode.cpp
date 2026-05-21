@@ -32,14 +32,36 @@ void Landscape::outputCode(const std::string &filename) const
 
   // Build per-set offsets into the flat ball array
   int num_sets = (int)sets.size();
+  std::vector<std::vector<int>> local_order(num_sets);   // new local index -> old local index
+  std::vector<std::vector<int>> old_to_new(num_sets);    // old local index -> new local index
+  for (int si = 0; si < num_sets; si++)
+  {
+    int n = (int)sets[si].balls.size();
+    old_to_new[si].assign(n, -1);
+
+    // First export all balls that recurse to a destination set.
+    for (int bi = 0; bi < n; bi++)
+      if (!sets[si].balls[bi].dest_set.empty())
+        local_order[si].push_back(bi);
+
+    // Then export the remaining balls.
+    for (int bi = 0; bi < n; bi++)
+      if (sets[si].balls[bi].dest_set.empty())
+        local_order[si].push_back(bi);
+
+    for (int new_bi = 0; new_bi < n; new_bi++)
+      old_to_new[si][local_order[si][new_bi]] = new_bi;
+  }
+
   std::vector<int> offsets(num_sets + 1, 0);
   std::vector<int> loc_offsets, locs;
   int count = 0;
   for (int si = 0; si < num_sets; si++)
   {
     offsets[si + 1] = offsets[si] + (int)sets[si].balls.size();
-    for (auto &ball: sets[si].balls)
+    for (int new_bi = 0; new_bi < (int)local_order[si].size(); new_bi++)
     {
+      const auto &ball = sets[si].balls[local_order[si][new_bi]];
       loc_offsets.push_back(count);
       locs.insert(locs.end(), ball.location.begin(), ball.location.end());
       count += ball.location.size();
@@ -61,11 +83,19 @@ void Landscape::outputCode(const std::string &filename) const
     leaf_offsets[si + 1] = leaf_offsets[si] + (int)sets[si].leaf_balls.size();
   int total_leaf_balls = leaf_offsets[num_sets];
 
+  auto flatIndexByLocal = [&](int si, int old_bi) -> int {
+    if (si < 0 || si >= num_sets) return -1;
+    if (old_bi < 0 || old_bi >= (int)old_to_new[si].size()) return -1;
+    int new_bi = old_to_new[si][old_bi];
+    if (new_bi < 0) return -1;
+    return offsets[si] + new_bi;
+  };
+
   // Find the flat index of a Ball pointer into BALLS[]
   auto flatIndex = [&](const Set::Ball *ball) -> int {
     for (int si = 0; si < num_sets; si++)
       for (int bi = 0; bi < (int)sets[si].balls.size(); bi++)
-        if (&sets[si].balls[bi] == ball) return offsets[si] + bi;
+        if (&sets[si].balls[bi] == ball) return flatIndexByLocal(si, bi);
     return -1;
   };
 
@@ -93,11 +123,12 @@ void Landscape::outputCode(const std::string &filename) const
   {
     const Set &s = sets[si];
     int n = (int)s.balls.size();
-    for (int bi = 0; bi < n; bi++)
+    for (int new_bi = 0; new_bi < n; new_bi++)
     {
-      int flat_b = offsets[si] + bi;
-      const Set::Ball &b = s.balls[bi];
-      bool is_reflexive = (b.dest_ball == nullptr || b.dest_ball == &s.balls[bi]);
+      int old_bi = local_order[si][new_bi];
+      int flat_b = offsets[si] + new_bi;
+      const Set::Ball &b = s.balls[old_bi];
+      bool is_reflexive = (b.dest_ball == nullptr || b.dest_ball == &s.balls[old_bi]);
       if (is_reflexive)
       {
         neighbour_offsets[flat_b] = 0;
@@ -108,8 +139,8 @@ void Landscape::outputCode(const std::string &filename) const
       neighbour_offsets[flat_b] = (int)neighbours.size();
       for (int j = 0; j < n; j++)
       {
-        if (s.conn(bi, j) > 0)
-          neighbours.push_back(offsets[si] + j); // store flat neighbour id
+        if (s.conn(old_bi, j) > 0)
+          neighbours.push_back(flatIndexByLocal(si, j)); // store remapped flat neighbour id
       }
       neighbour_counts[flat_b] = (int)neighbours.size() - neighbour_offsets[flat_b];
     }
@@ -213,8 +244,8 @@ void Landscape::outputCode(const std::string &filename) const
         {
           const Set::Overlap &ov = s.overlaps[oi];
 
-          int ball_0 = (ov.ball_0 >= 0 && ov.ball_0 < (int)s.balls.size()) ? offsets[si] + ov.ball_0 : -1;
-          int ball_1 = (ov.ball_1 >= 0 && ov.ball_1 < (int)s.balls.size()) ? offsets[si] + ov.ball_1 : -1;
+            int ball_0 = (ov.ball_0 >= 0 && ov.ball_0 < (int)s.balls.size()) ? flatIndexByLocal(si, ov.ball_0) : -1;
+            int ball_1 = (ov.ball_1 >= 0 && ov.ball_1 < (int)s.balls.size()) ? flatIndexByLocal(si, ov.ball_1) : -1;
 
           int dest_si = setIndexByName(ov.dest_set);
           out << "    Overlap(" << ball_0 << ", " << ball_1 << ", " << dest_si << ")"
@@ -227,17 +258,19 @@ void Landscape::outputCode(const std::string &filename) const
   // ── Flat ball array ───────────────────────────────────────────────────────
   out << "const int NUM_BALLS = " << total_balls << ";\n";
   out << "const Ball BALLS[" << total_balls << "] = Ball[" << total_balls << "](\n";
+  int flat_ball_counter = 0;
   for (int si = 0; si < num_sets; si++)
   {
     const Set &s = sets[si];
     int n = (int)s.balls.size();
     out << "    // set " << si << ": " << s.name << "\n";
-    for (int bi = 0; bi < n; bi++)
+    for (int new_bi = 0; new_bi < n; new_bi++, flat_ball_counter++)
     {
-      const Set::Ball &b = s.balls[bi];
+      int old_bi = local_order[si][new_bi];
+      const Set::Ball &b = s.balls[old_bi];
       int dest_s = setIndex(b.dest_ball);
       int dest_b = flatIndex(b.dest_ball);
-      bool last = (si == num_sets - 1 && bi == n - 1);
+      bool last = (flat_ball_counter == total_balls - 1);
       Eigen::Vector3d dir = b.centre.normalized();
       if (dir.squaredNorm() < 1e-20)
         dir = Eigen::Vector3d(0, 0, 1);
@@ -250,8 +283,8 @@ void Landscape::outputCode(const std::string &filename) const
           << curvature << ", "
           << dest_s << ", "
           << dest_b << ", "
-          << neighbour_offsets[offsets[si] + bi] << ", "
-          << neighbour_counts[offsets[si] + bi] << ")"
+          << neighbour_offsets[offsets[si] + new_bi] << ", "
+          << neighbour_counts[offsets[si] + new_bi] << ")"
           << (last ? "" : ",") << "\n";
     }
   }
@@ -301,13 +334,14 @@ void Landscape::outputCode(const std::string &filename) const
   // Collect flat indices of balls that need a transform.
   std::vector<int> mobius_flat; // flat ball indices that have dest_set
   std::vector<int> ball_mobius(total_balls, -1); // flat index → mobius index
-  for (int si = 0; si < num_sets; si++) {
-    const Set &s = sets[si];
-    for (int bi = 0; bi < (int)s.balls.size(); bi++) {
-      if (!s.balls[bi].dest_set.empty()) {
-        ball_mobius[offsets[si] + bi] = (int)mobius_flat.size();
-        mobius_flat.push_back(offsets[si] + bi);
-      }
+  for (int flat = 0; flat < total_balls; flat++) {
+    int si = 0;
+    while (si + 1 < (int)offsets.size() && flat >= offsets[si + 1]) si++;
+    int new_bi = flat - offsets[si];
+    int old_bi = local_order[si][new_bi];
+    if (!sets[si].balls[old_bi].dest_set.empty()) {
+      ball_mobius[flat] = (int)mobius_flat.size();
+      mobius_flat.push_back(flat);
     }
   }
   int num_mobius = (int)mobius_flat.size();
@@ -324,7 +358,11 @@ void Landscape::outputCode(const std::string &filename) const
     auto ballAt = [&](int flat) -> const Set::Ball & {
       for (int si = 0; si < num_sets; si++)
         if (flat < offsets[si+1])
-          return sets[si].balls[flat - offsets[si]];
+        {
+          int new_bi = flat - offsets[si];
+          int old_bi = local_order[si][new_bi];
+          return sets[si].balls[old_bi];
+        }
       return sets[0].balls[0]; // unreachable
     };
 
