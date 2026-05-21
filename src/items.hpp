@@ -492,7 +492,6 @@ auto hill_test = [&]()
   set.balls[0].dest_ball_id = 0;
   set.balls[1].dest_set = "hill-test";
   set.balls[1].dest_ball_id = 1;
-  set.overlaps.push_back(Landscape::Set::Overlap(0,1, "tree-hill-test", 1));
 */
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
@@ -501,75 +500,9 @@ auto hill_test = [&]()
 };
 
 
-auto tree_hill_test = [&]()
+auto hill_testb = [&]()
 {
-  land.sets.push_back(Landscape::Set("tree-hill-test", 12));
-  Landscape::Set &set = land.sets.back();
-  set.colour = Eigen::Vector4d(0.6,0.6,0.2,1);
-  const double pi = 3.14159265;
-
-  double h = std::sqrt(1.0 / 5.0);
-  double r = std::sqrt(1.0 - h); // 0.743
-  double peak = 1.0; // 1 is normal
-  double offset = std::sqrt(1.0);
-  double rmid = std::sqrt(mid);
-  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
-  for (int i = 0; i<5; i++)
-  {
-    float ang1 = (double)i * 2.0*pi/5.0;
-    float ang2 = ang1 + pi/5.0;
-
-    set.conn(0,1+i) = 2; // top fan
-    double sc = (1+i)==3 || (1+i)==4 ? bulge : 1.0;
-//    if ((1+i)==3 || (1+i)==4) // use hill type:
-    {
- //     double sc = bulge; // bulge
-      double mob = (1+i)==1 || (1+i)==2 || (1+i)==5 ? 0.0 : 20.0;
-      if ((1+i)==2)
-      {
-        double H = std::sqrt(4.0*h*h + (ll-h)*(ll-h));
-        double R = std::sqrt(H*H - r*r);
-        set.balls[1+i].initSphere((ll/std::sqrt(5.0))*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), R, 0.0); // top ring
-      }
-      else
-        set.balls[1+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), sc*r, mob); // top ring
-    }
- //   else
- //     set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r, 0.0); // top ring
-    set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
-    set.conn(1+i, 6+i) = 2; // zig
-    set.conn(6+i, 1+ (i+1)%5) = 2; // zag
-    double scale = rmid;
-    if (i == 1 || i== 4)
-      scale *= ridge;
-    else
-      scale /= ridge;
-    if(i==2 || i==3)
-      scale *= offset;
-    else
-      scale /= offset;
-    double mobility = 20.0;//(6+i)==6 || (6+i)==10 ? 0.0 : 1.0;
-    sc = (6+i)==7 || (6+i) == 8 || (6+i)==9 ? bulge : 1.0;
-    if ((6+i) == 8)
-      sc *= bulge*bulge;
-    if ((6+i)==6 || (6+i)==10)
-      set.balls[6+i].initSphere(scale*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -scale), r, mobility); // bottom ring
-    else
-      set.balls[6+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -1), sc*r, mobility); // bottom ring
-    set.conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
-    set.conn(6+i,11) = 2; // bottom fan
-  }
-//  set.balls[11].initSphere(Eigen::Vector3d(0,0,-peak), offset*offset*ridge*ridge*peak*r);
-  set.balls[11].initSphere(Eigen::Vector3d(0,0,-bulge), bulge*r);
-
-  set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
-  set.leaf_union = false;
-  set.render_volume_only = true; 
-};
-/*
-auto hill_icos_test = [&]()
-{
-  land.sets.push_back(Landscape::Set("hill-icos-test", 12));
+  land.sets.push_back(Landscape::Set("hill-testb", 12));
   Landscape::Set &set = land.sets.back();
   set.colour = Eigen::Vector4d(0.85,0.45,0.25,1);
   const double pi = 3.14159265;
@@ -577,35 +510,87 @@ auto hill_icos_test = [&]()
   double h = std::sqrt(1.0 / 5.0);
   double r = std::sqrt(1.0 - h); // 0.743
 
-  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
-  for (int i = 0; i<5; i++)
+  // Build hill-test geometry first, then relabel indices so hill-testb is a
+  // pure index permutation (TWISTED changes labels only, not shape).
+  std::vector<Eigen::Vector3d> base_centres(12, Eigen::Vector3d::Zero());
+  std::vector<double> base_radii(12, r);
+  std::vector<double> base_mobility(12, 1.0);
+  Adj base_conn;
+  base_conn.resize(12);
+
+  base_centres[0] = Eigen::Vector3d(0,0,1);
+  base_radii[0] = r;
+  base_mobility[0] = 0.0;
+  for (int i = 0; i < 5; i++)
   {
     float ang1 = (double)i * 2.0*pi/5.0;
     float ang2 = ang1 + pi/5.0;
 
-    set.conn(0,1+i) = 2; // top fan
+    base_conn(0, 1+i) = 2; // top fan
+
     double sc = (1+i)==3 || (1+i)==4 ? bulge : 1.0;
-    double moveability = 0.0;
-    set.balls[1+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), sc*r, moveability); // top ring
-    set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
-    set.conn(1+i, 6+i) = 2; // zig
-    set.conn(6+i, 1+ (i+1)%5) = 2; // zag
+    double moveability = (1+i)==1 || (1+i)==2 || (i+i)==5 ? 0.0 : 1.0;
+    if ((1+i)==2)
+    {
+      double H = std::sqrt(4.0*h*h + (ll-h)*(ll-h));
+      double R = std::sqrt(H*H - r*r);
+      base_centres[1+i] = (ll/std::sqrt(5.0))*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1);
+      base_radii[1+i] = R;
+      base_mobility[1+i] = 0.0;
+    }
+    else
+    {
+      base_centres[1+i] = sc*h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1);
+      base_radii[1+i] = sc*r;
+      base_mobility[1+i] = moveability;
+    }
+
+    base_conn(1+i, 1 + (i+1)%5) = 2; // around top ring
+    base_conn(1+i, 6+i) = 2; // zig
+    base_conn(6+i, 1+ (i+1)%5) = 2; // zag
 
     sc = (6+i)==7 || (6+i) == 8 || (6+i)==9 ? bulge : 1.0;
     if ((6+i) == 8)
-      sc *= bulge;
+      sc *= bulge*bulge;
     moveability = (6+i)==6 || (6+i)==10 ? 0.0 : 1.0;
-    set.balls[6+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -1), sc*r, moveability); // bottom ring
-    set.conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
-    set.conn(6+i,11) = 2; // bottom fan
-  }
-  set.balls[11].initSphere(Eigen::Vector3d(0,0,-bulge), bulge*r);
+    base_centres[6+i] = sc*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -1);
+    base_radii[6+i] = sc*r;
+    base_mobility[6+i] = moveability;
 
-  set.balls[0].dest_set = "tree-test";
-  set.balls[0].dest_ball_id = 0;
+    base_conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
+    base_conn(6+i,11) = 2; // bottom fan
+  }
+  base_centres[11] = Eigen::Vector3d(0,0,-bulge);
+  base_radii[11] = bulge*r;
+  base_mobility[11] = 1.0;
+
+#if defined(HILL_TESTB_ROT72)
+  {
+    const double ang = 2.0 * pi / 5.0;
+    Eigen::Vector3d axis = Eigen::Vector3d::UnitZ();
+#if defined(HILL_TESTB_ROT72_TILTED_AXIS)
+    axis = Eigen::Vector3d(1.0, 1.0, 0.5).normalized();
+#endif
+    Eigen::Matrix3d R = Eigen::AngleAxisd(ang, axis).toRotationMatrix();
+    for (auto &c : base_centres)
+      c = R * c;
+  }
+#endif
+
+  // new_index -> old_index in hill-test numbering.
+  const int perm[12] = {1, 2, 6, 10, 5, 0, 3, 4, 7, 8, 9, 11};
+
+  for (int ni = 0; ni < 12; ni++)
+  {
+    int oi = perm[ni];
+    set.balls[ni].initSphere(base_centres[oi], base_radii[oi], base_mobility[oi]);
+  }
+  for (int ni = 0; ni < 12; ni++)
+    for (int nj = ni + 1; nj < 12; nj++)
+      set.conn(ni, nj) = base_conn(perm[ni], perm[nj]);
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;
   set.render_volume_only = true; 
 };
-*/
+

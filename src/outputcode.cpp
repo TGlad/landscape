@@ -129,8 +129,7 @@ void Landscape::outputCode(const std::string &filename) const
       << "};\n\n";
     out << "struct Overlap {\n"
         << "    int ball_0, ball_1;\n"
-        << "    int dest_set;\n"
-        << "    int dest_ball_1; // dest_ball_0 is same as BALLS[ball_0].dest_ball \n"
+      << "    int dest_set;\n"
         << "};\n\n";
 
   // ── Set offset table ─────────────────────────────────────────────────────
@@ -199,7 +198,7 @@ void Landscape::outputCode(const std::string &filename) const
     out << "const Overlap OVERLAPS[" << overlap_storage << "] = Overlap[" << overlap_storage << "](\n";
     if (total_overlaps == 0)
     {
-      out << "    Overlap(-1, -1, -1, -1)\n";
+      out << "    Overlap(-1, -1, -1)\n";
     }
     else
     {
@@ -218,11 +217,7 @@ void Landscape::outputCode(const std::string &filename) const
           int ball_1 = (ov.ball_1 >= 0 && ov.ball_1 < (int)s.balls.size()) ? offsets[si] + ov.ball_1 : -1;
 
           int dest_si = setIndexByName(ov.dest_set);
-          int dest_ball_1 = -1;
-          if (dest_si >= 0 && ov.dest_ball_1_id >= 0 && ov.dest_ball_1_id < (int)sets[dest_si].balls.size())
-            dest_ball_1 = offsets[dest_si] + ov.dest_ball_1_id;
-
-          out << "    Overlap(" << ball_0 << ", " << ball_1 << ", " << dest_si << ", " << dest_ball_1 << ")"
+          out << "    Overlap(" << ball_0 << ", " << ball_1 << ", " << dest_si << ")"
               << (flat_oi < total_overlaps - 1 ? "," : "") << "\n";
         }
       }

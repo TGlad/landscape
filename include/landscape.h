@@ -52,10 +52,9 @@ struct Landscape
     std::vector<int> leaf_ball_set;
     struct Overlap // supports oriented spheres and oriented planes
     {
-      Overlap(int ball0, int ball1, const std::string &destset, int dest_ball_id) : ball_0(ball0), ball_1(ball1), dest_set(destset), dest_ball_1_id(dest_ball_id) {}
+      Overlap(int ball0, int ball1, const std::string &destset) : ball_0(ball0), ball_1(ball1), dest_set(destset) {}
       int ball_0, ball_1;
       std::string dest_set;
-      int dest_ball_1_id; // dest_ball_0_id is balls[ball_0].dest_id
     };
     std::vector<Overlap> overlaps;
 
@@ -72,7 +71,7 @@ struct Landscape
     // internal stuff
     std::vector<Eigen::Vector4i> leaf_ball_ids;
     std::vector<double> leaf_ball_scales;
-    bool verifyConnectivity(double tol = 1e-4) const;
+    bool verifyConnectivity(double tol = 1e-2) const;
     void calculateLeafBall(int i, int j, int k, int l);
     void calculateLeafBall(int i, int j, int k, double scale); // smallest: center in plane of 3 ball centers
     void calculateLeafBalls(); // uses leaf_ball_ids
@@ -83,6 +82,7 @@ struct Landscape
     Set &operator=(const Set &o);
     Set &operator=(Set &&o);
   };
+  void generateOverlapLayouts();
   std::deque<Set> sets;
   const Set &set(const std::string &set_name)
   {

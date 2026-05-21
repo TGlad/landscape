@@ -512,7 +512,6 @@ static std::vector<int> buildFanTypeMap(const Landscape::Set::Ball &src,
 
   const int src0 = src.type_to_set[0];
   const int dst0 = dst.type_to_set[0];
-  std::cout << "building fan by centroid" << std::endl;
   auto src_fan = orderedFanByCentroid(*src.parent_set, src0);
   auto dst_fan = orderedFanByCentroid(*dst.parent_set, dst0);
   if (src_fan.empty() || src_fan.size() != dst_fan.size()) return map;
@@ -536,6 +535,160 @@ static std::vector<int> buildFanTypeMap(const Landscape::Set::Ball &src,
       map[s_ti] = d_ti;
   }
 
+  return map;
+}
+
+void Landscape::generateOverlapLayouts()
+{
+  for (auto &A: sets)
+  {
+    for (int i = 0; i<(int)A.balls.size(); i++)
+    {
+      if (A.balls[i].dest_set == "")
+        continue;
+      for (int j = i+1; j<(int)A.balls.size(); j++)
+      {
+        if (A.balls[j].dest_set == "")
+          continue;
+        if (A.conn(i,j)>0) // substitution spheres overlap
+        {
+          sets.push_back(A); // makes separate copy of set A
+          Landscape::Set &D = sets.back();
+          Set *B = nullptr, *C = nullptr;
+          for (auto &s : sets)
+          {
+            if (s.name == A.balls[i].dest_set)
+              B = &s;
+            if (s.name == A.balls[j].dest_set)
+              C = &s;
+          }
+          D.name = A.name + "_overlap_" + std::to_string(i) + "_" + std::to_string(j);
+          D.colour = (B->colour + C->colour)/2.0;
+          for (auto &ball: D.balls)
+          {
+            ball.mobility = 1.0;
+            ball.dest_set = "";
+            ball.location.clear();
+          }
+    //      D.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
+          A.overlaps.push_back(Landscape::Set::Overlap(i,j, D.name)); // easy reference to the overlaps
+        } 
+      }
+    }
+  }
+}
+
+
+static void printMappedFanAdjacencyDiagnostics(const Landscape::Set::Ball &src,
+                                               const Landscape::Set::Ball &dst,
+                                               const std::vector<int> &dst_ti_for_src_ti,
+                                               const std::string &label)
+{
+  if (src.parent_set == nullptr || dst.parent_set == nullptr) return;
+  if (src.type_to_set.empty() || dst.type_to_set.empty()) return;
+
+  const int src0 = src.type_to_set[0];
+  const int dst0 = dst.type_to_set[0];
+  auto src_fan = orderedFanByCentroid(*src.parent_set, src0);
+  auto dst_fan = orderedFanByCentroid(*dst.parent_set, dst0);
+  if (src_fan.empty())
+  {
+    std::cout << "[mapped-fan] " << label << " no source fan\n";
+    return;
+  }
+
+  std::vector<int> mapped_fan;
+  mapped_fan.reserve(src_fan.size());
+  bool all_mapped = true;
+  for (int s_ball : src_fan)
+  {
+    int d_ball = mapSetBallThroughTypeMap(src, dst, dst_ti_for_src_ti, s_ball);
+    if (d_ball < 0) all_mapped = false;
+    mapped_fan.push_back(d_ball);
+  }
+
+  std::cout << "[mapped-fan] " << label
+            << " src_center=" << src0
+            << " dst_center=" << dst0
+            << " src:";
+  for (int b : src_fan) std::cout << " " << b;
+  std::cout << " mapped:";
+  for (int b : mapped_fan) std::cout << " " << b;
+  std::cout << "\n";
+
+  if (!all_mapped)
+  {
+    std::cout << "[mapped-fan] " << label << " incomplete mapping\n";
+    return;
+  }
+
+  bool center_ok = true;
+  bool ring_ok = true;
+  bool unique_ok = true;
+  std::set<int> used;
+  const int N = (int)mapped_fan.size();
+  for (int i = 0; i < N; i++)
+  {
+    int a = mapped_fan[i];
+    int b = mapped_fan[(i + 1) % N];
+    if (!used.insert(a).second) unique_ok = false;
+    if (a < 0 || a >= (int)dst.parent_set->balls.size())
+    {
+      center_ok = false;
+      ring_ok = false;
+      continue;
+    }
+    if (dst.parent_set->conn(dst0, a) <= 0) center_ok = false;
+    if (b < 0 || b >= (int)dst.parent_set->balls.size() || dst.parent_set->conn(a, b) <= 0)
+      ring_ok = false;
+  }
+
+  auto isCyclicShift = [&](const std::vector<int> &ref, const std::vector<int> &seq) {
+    if (ref.size() != seq.size()) return false;
+    int n = (int)ref.size();
+    for (int sh = 0; sh < n; sh++)
+    {
+      bool ok = true;
+      for (int i = 0; i < n; i++)
+      {
+        if (seq[i] != ref[(i + sh) % n])
+        {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return true;
+    }
+    return false;
+  };
+
+  bool cyclic_ok = isCyclicShift(dst_fan, mapped_fan);
+
+  std::cout << "[mapped-fan] " << label
+            << " center-adjacency=" << (center_ok ? "OK" : "BAD")
+            << " ring-adjacency=" << (ring_ok ? "OK" : "BAD")
+            << " unique=" << (unique_ok ? "OK" : "BAD")
+            << " cyclic-with-dst-fan=" << (cyclic_ok ? "OK" : "BAD")
+            << "\n";
+}
+
+static std::vector<int> buildInheritedTypeMapBySetIndex(
+    const Landscape::Set::Ball &src,
+    const Landscape::Set::Ball &dst,
+    const Landscape::Set::Ball &owner,
+    const std::vector<int> &owner_map)
+{
+  std::vector<int> map = identityTypeMap(src, dst);
+  for (int sti = 0; sti < (int)map.size(); sti++)
+  {
+    if (sti < 0 || sti >= (int)src.type_to_set.size()) continue;
+    const int src_set_ball = src.type_to_set[sti];
+    const int dst_set_ball = mapSetBallThroughTypeMap(owner, *owner.dest_ball, owner_map, src_set_ball);
+    if (dst_set_ball < 0 || dst_set_ball >= (int)dst.set_to_type.size()) continue;
+    const int dst_ti = dst.set_to_type[dst_set_ball];
+    if (dst_ti < 0 || dst_ti >= (int)dst.type_to_set.size()) continue;
+    map[sti] = dst_ti;
+  }
   return map;
 }
 
