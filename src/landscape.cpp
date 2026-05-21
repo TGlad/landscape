@@ -644,8 +644,10 @@ static std::vector<int> findBestNeighbourTypeMap(const Landscape::Set::Ball &src
     }
   };
 
-  for (int shift = 0; shift < (int)dst_fan.size(); shift++)
-    evaluateCandidate(/*reverse=*/false, shift);
+  // Use the direct fan-to-fan positional correspondence (same direction,
+  // no cyclic shift). This keeps index mappings deterministic and consistent
+  // with the exported fan orders used by overlap links.
+  evaluateCandidate(/*reverse=*/false, /*shift=*/0);
 
   return best_map;
 }
