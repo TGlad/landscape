@@ -110,5 +110,5 @@ struct Landscape
   void addSetsToTypes();  
   void addSetToTypes(Set &set);
   void matchUpDestinationBalls();
-  void outputCode(const std::string &filename = "landscape.glsl") const;
+  void outputCode(const std::string &filename = "common.glsl") const;
 };

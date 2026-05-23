@@ -150,9 +150,8 @@ void Landscape::outputCode(const std::string &filename) const
 
   // ── Ball struct ──────────────────────────────────────────────────────────
   out << "struct Ball {\n"
-      << "    vec3  dir;\n"
-      << "    float dist;\n"
-      << "    float curvature;\n"
+      << "    vec3  centre;\n"
+      << "    float radius;\n"
       << "    int   dest_set;   // flat index into SETS[];  -1 = reflexive\n"
       << "    int   dest_ball;  // flat index into BALLS[]; -1 = none\n"
       << "    int   neighbours_offset; // offset in NEIGHBOURS[]\n"
@@ -271,16 +270,10 @@ void Landscape::outputCode(const std::string &filename) const
       int dest_s = setIndex(b.dest_ball);
       int dest_b = flatIndex(b.dest_ball);
       bool last = (flat_ball_counter == total_balls - 1);
-      Eigen::Vector3d dir = b.centre.normalized();
-      if (dir.squaredNorm() < 1e-20)
-        dir = Eigen::Vector3d(0, 0, 1);
       double rr = clampSignedRadius(b.radius);
-      double dist = b.centre.norm() - rr;
-      double curvature = 1.0 / rr;
       out << "    Ball(vec3("
-          << dir.x() << ", " << dir.y() << ", " << dir.z() << "), "
-          << dist << ", "
-          << curvature << ", "
+          << b.centre.x() << ", " << b.centre.y() << ", " << b.centre.z() << "), "
+          << rr << ", "
           << dest_s << ", "
           << dest_b << ", "
           << neighbour_offsets[offsets[si] + new_bi] << ", "
@@ -305,16 +298,10 @@ void Landscape::outputCode(const std::string &filename) const
       for (int bi = 0; bi < n; bi++, flat++)
       {
         const Set::Ball &b = s.leaf_balls[bi];
-        Eigen::Vector3d dir = b.centre.normalized();
-        if (dir.squaredNorm() < 1e-20)
-          dir = Eigen::Vector3d(0, 0, 1);
         double rr = clampSignedRadius(b.radius);
-        double dist = b.centre.norm() - rr;
-        double curvature = 1.0 / rr;
         out << "    Ball(vec3("
-            << dir.x() << ", " << dir.y() << ", " << dir.z() << "), "
-            << dist << ", "
-            << curvature << ", "
+            << b.centre.x() << ", " << b.centre.y() << ", " << b.centre.z() << "), "
+            << rr << ", "
           << "-1, -1, 0, 0)"  // leaf balls don't recurse
             << (flat < total_leaf_balls - 1 ? "," : "") << "\n";
       }

@@ -283,16 +283,16 @@ auto icosahedron = [&]()
   set.balls[11].initSphere(Eigen::Vector3d(0,0,-z), std::sqrt(H*H - r*r), mobility);
 
   // 7, 8 is bad. But all the others are fine
-  set.balls[8].dest_set = "tree-test";
-  set.balls[8].dest_ball_id = 0;
+  set.balls[0].dest_set = "tree-test";
+  set.balls[0].dest_ball_id = 0;
   // set.balls[1].location.push_back(1);
 //#define TWISTED
 #if defined TWISTED
   set.balls[1].dest_set = "hill-testb";
   set.balls[1].dest_ball_id = 0;
 #else
-  set.balls[4].dest_set = "hill-test";
-  set.balls[4].dest_ball_id = 1;
+  set.balls[2].dest_set = "hill-test";
+  set.balls[2].dest_ball_id = 1;
 #endif
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
