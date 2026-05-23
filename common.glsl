@@ -21,9 +21,6 @@ const bool VOLUME_ONLY[6] = bool[6](true, true, true, true, true, false);
 const int LEAF_OFFSET[6] = int[6](0, 20, 40, 53, 66, 79);
 const int LEAF_SIZE[6] = int[6](20, 20, 13, 13, 13, 11);
 const bool LEAF_UNION[6] = bool[6](false, false, false, false, false, false);
-const int LOCATION_OFFSETS[73] = int[73](0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-const int NUM_LOCATIONS = 1;
-const int LOCATIONS[NUM_LOCATIONS] = int[1](0);
 const int MAX_BALLS_PER_SET = 12;
 
 const int NUM_NEIGHBOURS = 10;

@@ -19,7 +19,6 @@ struct Landscape
       Eigen::Vector3d centre;
       double radius;
       std::string dest_set;
-      std::vector<int> location; // sequence of ids to pass through before swapping to dest_set 
       int dest_ball_id; // -1 choses the first that works topologically
       double mobility {1.0}; // 0=fixed, 1=standard update weight
 

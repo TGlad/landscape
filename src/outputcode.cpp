@@ -52,23 +52,9 @@ void Landscape::outputCode(const std::string &filename) const
     for (int new_bi = 0; new_bi < n; new_bi++)
       old_to_new[si][local_order[si][new_bi]] = new_bi;
   }
-
   std::vector<int> offsets(num_sets + 1, 0);
-  std::vector<int> loc_offsets, locs;
-  int count = 0;
   for (int si = 0; si < num_sets; si++)
-  {
     offsets[si + 1] = offsets[si] + (int)sets[si].balls.size();
-    for (int new_bi = 0; new_bi < (int)local_order[si].size(); new_bi++)
-    {
-      const auto &ball = sets[si].balls[local_order[si][new_bi]];
-      loc_offsets.push_back(count);
-      locs.insert(locs.end(), ball.location.begin(), ball.location.end());
-      count += ball.location.size();
-    }
-  }
-  loc_offsets.push_back(count);
-
   int total_balls = offsets[num_sets];
 
   // Per-ball neighbour metadata used by GLSL recursion helpers.
@@ -202,17 +188,6 @@ void Landscape::outputCode(const std::string &filename) const
   out << "const bool LEAF_UNION[" << num_sets << "] = bool[" << num_sets << "](";
   for (int si = 0; si < num_sets; si++)
     out << (sets[si].leaf_union ? "true" : "false") << (si < num_sets - 1 ? ", " : "");
-  out << ");\n";
-  out << "const int LOCATION_OFFSETS[" << loc_offsets.size() << "] = int[" << loc_offsets.size() << "](";
-  for (int si = 0; si<loc_offsets.size(); si++)
-    out << loc_offsets[si] << (si < loc_offsets.size()-1 ? ", " : "");
-  out << ");\n";
-  if (locs.empty())
-    locs.push_back(0); // since can't have 0-length arrays
-  out << "const int NUM_LOCATIONS = " << locs.size() << ";\n";
-  out << "const int LOCATIONS[NUM_LOCATIONS] = int[" << locs.size() << "](";
-  for (int si = 0; si<locs.size(); si++)
-    out << locs[si] << (si < locs.size()-1 ? ", " : "");
   out << ");\n";
   out << "const int MAX_BALLS_PER_SET = " << max_balls_per_set << ";\n\n";
 

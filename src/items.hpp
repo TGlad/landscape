@@ -134,8 +134,6 @@ auto ball = [&]()
   set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), r, 0.0);
   set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0,-1)), 1.0, mobility);
 
-//  set.balls[0].location.push_back(0); // go through ball 5 first
-//  set.balls[0].location.push_back(5); // go through ball 5 first
   set.balls[0].dest_set = "shell-shell";
   set.balls[0].dest_ball_id = 0;
 /*  double scale = 0.5;
@@ -366,8 +364,6 @@ auto ballToLandscape = [&]()
   set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0.6,-1.0)), 1.0);
   set.balls[6].initSphere(with_noise(Eigen::Vector3d(0,-0.6,-1.0)), 1.0);
 
-//  set.balls[0].location.push_back(0); // go through ball 5 first
-//  set.balls[0].location.push_back(5); // go through ball 5 first
 //  set.balls[0].dest_set = "shell-shell";
 //  set.balls[0].dest_ball_id = 0;
 /*  double scale = 0.9;

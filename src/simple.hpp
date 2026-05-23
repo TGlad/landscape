@@ -285,7 +285,6 @@ auto icosahedron = [&]()
   // 7, 8 is bad. But all the others are fine
   set.balls[0].dest_set = "tree-test";
   set.balls[0].dest_ball_id = 0;
-  // set.balls[1].location.push_back(1);
 //#define TWISTED
 #if defined TWISTED
   set.balls[1].dest_set = "hill-testb";
