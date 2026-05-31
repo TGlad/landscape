@@ -12,7 +12,7 @@
 
 // ─── Fractal parameters ────────────────────────────────────────────
 const int   ITERS   = 20;
-const bool show_generators = true;
+const bool show_generators = false;
 const bool show_arrows = false;
 const bool show_overlap = false;
 
@@ -41,24 +41,22 @@ float DE(vec3 p)
 
   float rad0 = SKIN;
   float rad = SKIN;
-  int location_ids[MAX_BALLS_PER_SET];
-  int loc_balls[MAX_BALLS_PER_SET];
-  int num_locations = 0;
-  for (int i = 0; i<SET_SIZE[set]; i++)
-  {
-    int j = SET_OFFSET[set] + i;
-    location_ids[i] = LOCATION_OFFSETS[j];
-    if (location_ids[i] < LOCATION_OFFSETS[j + 1])
-      loc_balls[num_locations++] = i;
-  }
-
   int dest_set = -1; // set;
   int dest_offset = 0;
   int dest_num = 0;
   int dest_i = 0;
+  int counts[10] = int[10](0,0,0,0,0,0,0,0,0,0);
   for (int n = 0; n < ITERS; n++) 
   {
     bool found = false;
+    counts[set]++;
+    
+    if (DEST_SETS[set] != set && counts[set] > SET_LEVELS[set])
+    {
+      set = DEST_SETS[set];
+      dest_set = set;
+      counts[set] = 0;
+    }
 
     // substitution sets
     // TODO: perhaps generate substitution set offset and set_offset separately to avoid continue below
@@ -81,7 +79,7 @@ float DE(vec3 p)
         // specify the dest_set, but don't change set until you exit A,B
         // if you exit A,B then swap set
         // if you get to tree (OVERLAPS[0].ball_0) then swap to overlap set instead 
-        if (BALL_MOBIUS[i] > -1 && location_ids[I] >= LOCATION_OFFSETS[i+1])
+        if (BALL_MOBIUS[i] > -1)
         {
           found = false;
           for (int j = OVERLAP_OFFSET[set]; j<OVERLAP_OFFSET[set+1]; j++)
@@ -101,16 +99,8 @@ float DE(vec3 p)
             if (d0 < BALLS[bi].radius*BALLS[bi].radius) // inside both spheres
             {
               set = OVERLAPS[j].dest_set;
+              counts[set] = 0;
               dest_set = set;
-              num_locations = 0;
-              // don't do Mobius transform quite yet
-              for (int i = 0; i<SET_SIZE[set]; i++)
-              {
-                int j = SET_OFFSET[set] + i;
-                location_ids[i] = LOCATION_OFFSETS[j];
-                if (location_ids[i] < LOCATION_OFFSETS[j + 1])
-                  loc_balls[num_locations++] = i;
-              }
               found = true;
               break; // just to be sure
             }
@@ -134,14 +124,7 @@ float DE(vec3 p)
           {
             p = applyMobius(BALL_MOBIUS[dest_i], p, rad);
             set = dest_set;
-            num_locations = 0;
-            for (int i = 0; i<SET_SIZE[set]; i++)
-            {
-              int j = SET_OFFSET[set] + i;
-              location_ids[i] = LOCATION_OFFSETS[j];
-              if (location_ids[i] < LOCATION_OFFSETS[j + 1])
-                loc_balls[num_locations++] = i;
-            }
+            counts[set] = 0;
             break;              
           }
         }
@@ -153,32 +136,21 @@ float DE(vec3 p)
         rad = (lmax - lmin)/2.0;
         p = p * (lmax + lmin)/(2.0*len) + BALLS[i].centre;
 
-
         if (BALL_MOBIUS[i] > -1)
         {
-          if (location_ids[I] >= LOCATION_OFFSETS[i+1])
-          {
-            dest_set = BALLS[i].dest_set;
-            dest_i = i;
-            dest_offset = BALLS[i].neighbours_offset;
-            dest_num = BALLS[i].num_neighbours;        
-            break;
-          }
+          dest_set = BALLS[i].dest_set;
+          dest_i = i;
+          dest_offset = BALLS[i].neighbours_offset;
+          dest_num = BALLS[i].num_neighbours;        
         }
-
-        for (int k = 0; k<num_locations; k++)
-        {
-          int j = loc_balls[k];
-          if (location_ids[j] < NUM_LOCATIONS && LOCATIONS[location_ids[j]] == I)
-            location_ids[j]++;
-        }
-        break;
+        if (dest_set != set && dest_set != -1)
+          break;
       }
     }
       
     // standard spheres
-    if (!found && BALL_MOBIUS[i] == -1)
-      break;
+ //   if (!found && BALL_MOBIUS[i] == -1)
+ //     break;
   }
 
   if (change_colour)
@@ -385,7 +357,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     // ── Slowly orbiting camera ─────────────────────────────────────
     float a  = iTime * 0.20;
-    float distance = 13.0;
+    float distance = 6.0;
     ro = vec3(sin(a) * distance,
                     cos(a) * distance,
                     show_generators ? 0.5*distance : 1.8 + sin(a * 0.37) * 1.4);
