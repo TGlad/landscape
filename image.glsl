@@ -34,7 +34,7 @@ float DE_generators(int set, vec3 p);
 // ══════════════════════════════════════════════════════════════════
 float DE(vec3 p) 
 {
-  int set = 0;
+  int set = 2;
   if (show_generators)
     return DE_generators(set, p);
   float scale = 1.0;
@@ -149,8 +149,8 @@ float DE(vec3 p)
     }
       
     // standard spheres
- //   if (!found && BALL_MOBIUS[i] == -1)
- //     break;
+    if (!found && BALL_MOBIUS[i] == -1)
+      break;
   }
 
   if (change_colour)
