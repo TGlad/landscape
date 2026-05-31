@@ -1226,9 +1226,22 @@ void Landscape::printConnectivity(bool show_valid_destinations)
 //
 void Landscape::applyConnectivity(int iterations)
 {
-  // Step 1: resolve dest_ball pointers by name.
+  // Step 1: resolve dest_ball pointers and dest_set ids by name.
+  int set_id = 0;
   for (auto &set : sets)
   {
+    if (set.dest_set == "") 
+    { 
+      set.dest_set_id = set_id; 
+    }
+    else
+    {
+      for (int i = 0; i<(int)sets.size(); i++)
+      {
+        if (sets[i].name == set.dest_set) { set.dest_set_id = i; break; }
+      }
+    }
+    set_id++;
     for (auto &ball : set.balls)
     {
       if (ball.dest_set == "")

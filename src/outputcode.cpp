@@ -160,15 +160,23 @@ void Landscape::outputCode(const std::string &filename) const
   for (int si = 0; si < num_sets; si++)
     out << (int)sets[si].balls.size() << (si < num_sets - 1 ? ", " : "");
   out << ");\n";
-    std::vector<int> overlap_offsets(num_sets + 1, 0);
-    for (int si = 0; si < num_sets; si++)
-      overlap_offsets[si + 1] = overlap_offsets[si] + (int)sets[si].overlaps.size();
-    int total_overlaps = overlap_offsets[num_sets];
+  out << "const int SET_LEVELS[" << num_sets << "] = int[" << num_sets << "]{";
+  for (int si = 0; si<num_sets; si++)
+    out << sets[si].levels << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
+  out << "const int DEST_SETS[" << num_sets << "] = int[" << num_sets << "]{";
+  for (int si = 0; si<num_sets; si++)
+    out << sets[si].dest_set_id << (si < num_sets - 1 ? ", " : "");
+  out << ");\n";
+  std::vector<int> overlap_offsets(num_sets + 1, 0);
+  for (int si = 0; si < num_sets; si++)
+    overlap_offsets[si + 1] = overlap_offsets[si] + (int)sets[si].overlaps.size();
+  int total_overlaps = overlap_offsets[num_sets];
 
-    out << "const int OVERLAP_OFFSET[" << (num_sets + 1) << "] = int[" << (num_sets + 1) << "](";
-    for (int si = 0; si <= num_sets; si++)
-      out << overlap_offsets[si] << (si < num_sets ? ", " : "");
-    out << ");\n";
+  out << "const int OVERLAP_OFFSET[" << (num_sets + 1) << "] = int[" << (num_sets + 1) << "](";
+  for (int si = 0; si <= num_sets; si++)
+    out << overlap_offsets[si] << (si < num_sets ? ", " : "");
+  out << ");\n";
   out << "const vec4 SET_COLOUR[" << num_sets << "] = vec4[" << num_sets << "](";
   for (int si = 0; si < num_sets; si++)
     out << "vec4(" << sets[si].colour[0] << ", " << sets[si].colour[1] << ", " << sets[si].colour[2] << ", " << sets[si].colour[3] << ")" << (si < num_sets - 1 ? ", " : "");

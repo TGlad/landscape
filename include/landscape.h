@@ -14,6 +14,9 @@ struct Landscape
     Set(const std::string &name, int num_balls);
     std::string name;
     Eigen::Vector4d colour {Eigen::Vector4d(1,1,1,1)};
+    std::string dest_set;
+    int dest_set_id {-1};
+    int levels {0}; // how many levels to remain in that set before going to dest_set
     struct Ball // sphere parameterisation
     {
       Eigen::Vector3d centre;

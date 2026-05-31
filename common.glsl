@@ -15,6 +15,8 @@ struct Overlap {
 const int NUM_SETS = 6;
 const int SET_OFFSET[6] = int[6](0, 12, 24, 36, 48, 60);
 const int SET_SIZE[6] = int[6](12, 12, 12, 12, 12, 12);
+const int SET_LEVELS[6] = int[6]{0, 0, 1, 0, 0, 0);
+const int DEST_SETS[6] = int[6]{0, 1, 3, 3, 4, 5);
 const int OVERLAP_OFFSET[7] = int[7](0, 1, 1, 1, 1, 1, 1);
 const vec4 SET_COLOUR[6] = vec4[6](vec4(0.7000000, 0.6000000, 0.5500000, 1.0000000), vec4(0.7000000, 0.6000000, 0.5500000, 1.0000000), vec4(0.2500000, 0.7000000, 0.2000000, 1.0000000), vec4(0.8500000, 0.4500000, 0.2500000, 1.0000000), vec4(0.8500000, 0.4500000, 0.2500000, 1.0000000), vec4(0.5500000, 0.5750000, 0.2250000, 1.0000000));
 const bool VOLUME_ONLY[6] = bool[6](true, true, true, true, true, false);
