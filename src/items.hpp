@@ -458,7 +458,7 @@ auto hill_test = [&]()
   set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
   for (int i = 0; i<5; i++)
   {
-    float ang1 = (double)i * 2.0*pi/5.0;
+    float ang1 = ((double)i - 0.15) * 2.0*pi/5.0;
     float ang2 = ang1 + pi/5.0;
 
     set.conn(0,1+i) = 2; // top fan

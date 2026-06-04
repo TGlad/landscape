@@ -160,11 +160,11 @@ void Landscape::outputCode(const std::string &filename) const
   for (int si = 0; si < num_sets; si++)
     out << (int)sets[si].balls.size() << (si < num_sets - 1 ? ", " : "");
   out << ");\n";
-  out << "const int SET_LEVELS[" << num_sets << "] = int[" << num_sets << "]{";
+  out << "const int SET_LEVELS[" << num_sets << "] = int[" << num_sets << "](";
   for (int si = 0; si<num_sets; si++)
     out << sets[si].levels << (si < num_sets - 1 ? ", " : "");
   out << ");\n";
-  out << "const int DEST_SETS[" << num_sets << "] = int[" << num_sets << "]{";
+  out << "const int DEST_SETS[" << num_sets << "] = int[" << num_sets << "](";
   for (int si = 0; si<num_sets; si++)
     out << sets[si].dest_set_id << (si < num_sets - 1 ? ", " : "");
   out << ");\n";

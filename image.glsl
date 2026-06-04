@@ -34,7 +34,7 @@ float DE_generators(int set, vec3 p);
 // ══════════════════════════════════════════════════════════════════
 float DE(vec3 p) 
 {
-  int set = 2;
+  int set = 1;
   if (show_generators)
     return DE_generators(set, p);
   float scale = 1.0;
@@ -57,14 +57,15 @@ float DE(vec3 p)
       dest_set = set;
       counts[set] = 0;
     }
+    // plan:
+    // if inside ball i then store oldP and invert and store bi
+    // check all *other* balls, if oldP inside ball j then invert and exit iteration
+    // so break and don't continue in turn to all balls...                      
 
-    // substitution sets
-    // TODO: perhaps generate substitution set offset and set_offset separately to avoid continue below
     int i = 0;
     for (i = SET_OFFSET[set]; i<SET_OFFSET[set] + SET_SIZE[set]; i++)
+//    for (i = SET_OFFSET[set]+SET_SIZE[set]-1; i>=SET_OFFSET[set]; i--)
     {
-      int I = i - SET_OFFSET[set];
-
       float r = BALLS[i].radius;
       vec3 off = p - BALLS[i].centre;
       float d2 = dot(off,off);
@@ -73,7 +74,7 @@ float DE(vec3 p)
         found = false;
         break;
       }
-      if (d2 < BALLS[i].radius*BALLS[i].radius)
+      if (d2 < r*r)
       {
         // if it has a dest then invert as normal, 
         // specify the dest_set, but don't change set until you exit A,B
@@ -128,6 +129,7 @@ float DE(vec3 p)
             break;              
           }
         }
+        vec3 oldP = p;
         
         p = off;
         float len = sqrt(d2);
@@ -143,7 +145,31 @@ float DE(vec3 p)
           dest_offset = BALLS[i].neighbours_offset;
           dest_num = BALLS[i].num_neighbours;        
         }
-        if (dest_set != set && dest_set != -1)
+        for (int j = SET_OFFSET[set]; j<SET_OFFSET[set] + SET_SIZE[set]; j++)
+        {
+          if (j==i)
+            continue;
+
+          float rb = BALLS[j].radius;
+          vec3 offb = oldP - BALLS[j].centre;
+          float d2b = dot(offb, offb);
+          if (d2b < 4.0*rad*rad) // TODO: the 4x works better and is faster, but why?
+          {
+            found = false;
+            break;
+          }
+          if (d2b < rb*rb)
+          {
+            p -= BALLS[j].centre;
+            float len = sqrt(dot(p,p));
+            float lmin = rb*rb / (len + rad);
+            float lmax = rb*rb / (len - rad);
+            rad = (lmax - lmin)/2.0;
+            p = p * (lmax + lmin)/(2.0*len) + BALLS[j].centre;
+          }
+        }
+
+     //   if (dest_set != set && dest_set != -1)
           break;
       }
     }
