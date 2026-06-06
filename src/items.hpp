@@ -438,8 +438,8 @@ auto tree_test = [&]()
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;
   set.render_volume_only = true; 
-  set.dest_set = "hill-test";
-  set.levels = 1;
+//  set.dest_set = "hill-test";
+//  set.levels = 1;
 };
 static double bulge = 1.3;
 
@@ -453,12 +453,10 @@ auto hill_test = [&]()
   double h = std::sqrt(1.0 / 5.0);
   double r = std::sqrt(1.0 - h); // 0.743
 
-  std::cout << "LL: " << ll << std::endl;
-
   set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
   for (int i = 0; i<5; i++)
   {
-    float ang1 = ((double)i - 0.15) * 2.0*pi/5.0;
+    float ang1 = (double)i * 2.0*pi/5.0;
     float ang2 = ang1 + pi/5.0;
 
     set.conn(0,1+i) = 2; // top fan

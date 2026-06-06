@@ -115,6 +115,8 @@ void Landscape::outputCode(const std::string &filename) const
       int flat_b = offsets[si] + new_bi;
       const Set::Ball &b = s.balls[old_bi];
       bool is_reflexive = (b.dest_ball == nullptr || b.dest_ball == &s.balls[old_bi]);
+      if (s.dest_set != "") // we want neighbours for balls in sets that have destination sets
+        is_reflexive = false;
       if (is_reflexive)
       {
         neighbour_offsets[flat_b] = 0;
@@ -206,36 +208,37 @@ void Landscape::outputCode(const std::string &filename) const
   for (int i = 0; i < (int)neighbours.size(); i++)
     out << neighbours[i] << (i < (int)neighbours.size() - 1 ? ", " : "");
   out << ");\n\n";
-    int overlap_storage = std::max(1, total_overlaps);
-    out << "const int NUM_OVERLAPS = " << total_overlaps << ";\n";
-    out << "const Overlap OVERLAPS[" << overlap_storage << "] = Overlap[" << overlap_storage << "](\n";
-    if (total_overlaps == 0)
+
+  int overlap_storage = std::max(1, total_overlaps);
+  out << "const int NUM_OVERLAPS = " << total_overlaps << ";\n";
+  out << "const Overlap OVERLAPS[" << overlap_storage << "] = Overlap[" << overlap_storage << "](\n";
+  if (total_overlaps == 0)
+  {
+    out << "    Overlap(-1, -1, -1)\n";
+  }
+  else
+  {
+    int flat_oi = 0;
+    for (int si = 0; si < num_sets; si++)
     {
-      out << "    Overlap(-1, -1, -1)\n";
-    }
-    else
-    {
-      int flat_oi = 0;
-      for (int si = 0; si < num_sets; si++)
+      const Set &s = sets[si];
+      int n = (int)s.overlaps.size();
+      if (n == 0) continue;
+      out << "    // set " << si << ": " << s.name << "\n";
+      for (int oi = 0; oi < n; oi++, flat_oi++)
       {
-        const Set &s = sets[si];
-        int n = (int)s.overlaps.size();
-        if (n == 0) continue;
-        out << "    // set " << si << ": " << s.name << "\n";
-        for (int oi = 0; oi < n; oi++, flat_oi++)
-        {
-          const Set::Overlap &ov = s.overlaps[oi];
+        const Set::Overlap &ov = s.overlaps[oi];
 
-            int ball_0 = (ov.ball_0 >= 0 && ov.ball_0 < (int)s.balls.size()) ? flatIndexByLocal(si, ov.ball_0) : -1;
-            int ball_1 = (ov.ball_1 >= 0 && ov.ball_1 < (int)s.balls.size()) ? flatIndexByLocal(si, ov.ball_1) : -1;
+          int ball_0 = (ov.ball_0 >= 0 && ov.ball_0 < (int)s.balls.size()) ? flatIndexByLocal(si, ov.ball_0) : -1;
+          int ball_1 = (ov.ball_1 >= 0 && ov.ball_1 < (int)s.balls.size()) ? flatIndexByLocal(si, ov.ball_1) : -1;
 
-          int dest_si = setIndexByName(ov.dest_set);
-          out << "    Overlap(" << ball_0 << ", " << ball_1 << ", " << dest_si << ")"
-              << (flat_oi < total_overlaps - 1 ? "," : "") << "\n";
-        }
+        int dest_si = setIndexByName(ov.dest_set);
+        out << "    Overlap(" << ball_0 << ", " << ball_1 << ", " << dest_si << ")"
+            << (flat_oi < total_overlaps - 1 ? "," : "") << "\n";
       }
     }
-    out << ");\n\n";
+  }
+  out << ");\n\n";
 
   // ── Flat ball array ───────────────────────────────────────────────────────
   out << "const int NUM_BALLS = " << total_balls << ";\n";

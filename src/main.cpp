@@ -4,7 +4,6 @@
 
 int main()
 {
-  std::cout << "hello" << std::endl;
   Landscape land;
 
   #include "simple.hpp" // define some simple sets
@@ -16,7 +15,7 @@ int main()
 //  voidSponge(); clusterSponge(); spongeSponge(); shellSponge();
   // shells
 //  shellShell();
-  icosahedron();
+//  icosahedron();
   icos2();
 
   // misc
