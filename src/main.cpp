@@ -8,23 +8,11 @@ int main()
 
   #include "simple.hpp" // define some simple sets
 
-  // decide which shapes to add:
-  // trees:
-  //voidTree(); clusterTree(); treeTree(); shellTree();
-  // sponges
-//  voidSponge(); clusterSponge(); spongeSponge(); shellSponge();
-  // shells
+//  clusterTree();
 //  shellShell();
-//  icosahedron();
-  icos2();
-
-  // misc
-//  cubeSpongeSponge();
+  icosahedron();
 
   #include "items.hpp" // define some simple sets
-//  cube_sphere();
-//  cube_sphere2();
-//  cube_tree();
 //  ball();
 //  clusterTree2();
 //  bush1();
@@ -33,7 +21,7 @@ int main()
 //  ballToLandscape();
   tree_test();
   hill_test();
-  hill_testb();
+ // hill_testb();
 
   // ── Global joint solve ───────────────────────────────────────────────────
   // Solves all sets simultaneously: per-set connectivity constraints AND

@@ -1703,8 +1703,8 @@ void Landscape::applyConnectivity(int iterations)
         }
       }
 
-      const double wi = bi.mobility;
-      const double wj = bj.mobility;
+      const double wi = 2.0*bi.mobility / (bi.mobility + bj.mobility);
+      const double wj = 2.0*bj.mobility / (bi.mobility + bj.mobility);
       gCi *= wi;  gri *= wi;
       gCj *= wj;  grj *= wj;
 
@@ -1773,8 +1773,8 @@ void Landscape::applyConnectivity(int iterations)
       auto [gCS, gRS] = sigma_to_sphere_grad(rS, CS, g_sigma_s);
       auto [gCD, gRD] = sigma_to_sphere_grad(rD, CD, g_sigma_d);
 
-      const double wS = sA.mobility;
-      const double wD = dA.mobility;
+      const double wS = 2.0*sA.mobility / (sA.mobility + dA.mobility);
+      const double wD = 2.0*dA.mobility / (sA.mobility + dA.mobility);
       gCS *= wS;  gRS *= wS;
       gCD *= wD;  gRD *= wD;
 

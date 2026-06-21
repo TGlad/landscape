@@ -160,8 +160,8 @@ auto shellShell = [&]()
   set.balls[4].initSphere(with_noise(Eigen::Vector3d(0,-1,0)), r, m);
   set.balls[5].initSphere(with_noise(Eigen::Vector3d(0,0,-0.5)), 0.5);
 
-//    set.balls[5].dest_set = "cluster-tree2";
-//    set.balls[5].dest_ball_id = 5;
+    set.balls[5].dest_set = "cluster-tree2";
+    set.balls[5].dest_ball_id = 5;
   set.addLeafBall(0,1,2,4);
   set.addLeafBall(2,3,4,5);
   set.leaf_union = false;
@@ -242,10 +242,15 @@ auto cubeSpongeSponge = [&]()
   set.balls[2].initPlane(Eigen::Vector3d(0,1,0),  0.0, true);
   set.balls[3].initPlane(Eigen::Vector3d(0,0,1),  0.0, true);
 };
-static double ll = 1.0;//0.85;
 
 auto icosahedron = [&]()
 {
+  constexpr double noise = 0.1;
+  auto with_noise = [&](const Eigen::Vector3d &v)
+  {
+    return v + noise * Eigen::Vector3d::Random();
+  };
+
   land.sets.push_back(Landscape::Set("icosahedron", 12));
   Landscape::Set &set = land.sets.back();
   set.colour = Eigen::Vector4d(0.7,0.6,0.55,1);
@@ -253,51 +258,36 @@ auto icosahedron = [&]()
 
   double h = std::sqrt(1.0 / 5.0);
   double r = std::sqrt(1.0 - h); // 0.743
-  double mobility = 0.0;
-  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, mobility);
+  double mobility = 0.5;//0.05;
+  set.balls[0].initSphere(with_noise(Eigen::Vector3d(0,0,1)), r, mobility);
   for (int i = 0; i<5; i++)
   {
     float ang1 = (double)i * 2.0*pi/5.0;
     float ang2 = ang1 + pi/5.0;
 
     set.conn(0,1+i) = 2; // top fan
-    if ((1+i)==2)
-    {
-      double H = std::sqrt(4.0*h*h + (ll-h)*(ll-h));
-      double R = std::sqrt(H*H - r*r);
-      double d = ll / sqrt(5.0);
-      set.balls[1+i].initSphere(d*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), R, mobility); // top ring
-    }
-    else
-      set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r, mobility); // top ring
+    set.balls[1+i].initSphere(with_noise(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1)), r, mobility); // top ring
     set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
     set.conn(1+i, 6+i) = 2; // zig
     set.conn(6+i, 1+ (i+1)%5) = 2; // zag
-    set.balls[6+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2),-1), r, mobility); // bottom ring
+    set.balls[6+i].initSphere(with_noise(h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2),-1)), r, mobility); // bottom ring
     set.conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
     set.conn(6+i,11) = 2; // bottom fan
   }
-
-  double z = 1.0;//(1.0 + h)/2.0;
-  double H = std::sqrt(4.0*h*h + (z-h)*(z-h));
-  set.balls[11].initSphere(Eigen::Vector3d(0,0,-z), std::sqrt(H*H - r*r), mobility);
+  set.balls[11].initSphere(with_noise(Eigen::Vector3d(0,0,-1)), r, mobility);
 
   // 7, 8 is bad. But all the others are fine
-  set.balls[0].dest_set = "tree-test";
-  set.balls[0].dest_ball_id = 0;
-//#define TWISTED
-#if defined TWISTED
-  set.balls[1].dest_set = "hill-testb";
-  set.balls[1].dest_ball_id = 0;
-#else
+  set.balls[6].dest_set = "tree-test";
+  set.balls[6].dest_ball_id = 0;
   set.balls[2].dest_set = "hill-test";
   set.balls[2].dest_ball_id = 1;
-#endif
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;
   set.render_volume_only = true; 
 };
+
+static double ll = 1.0;//0.85;
 
 auto icos2 = [&]()
 {

@@ -201,12 +201,12 @@ auto clusterTree2 = [&]()
 
   set.balls[6].dest_set = "cluster-tree";
   set.balls[6].dest_ball_id = 0;
-  set.balls[7].dest_set = "bush1";
+/*  set.balls[7].dest_set = "bush1";
   set.balls[7].dest_ball_id = 0;
   set.balls[8].dest_set = "bush2";
   set.balls[8].dest_ball_id = 0;
-  set.balls[9].dest_set = "bush3";
-  set.balls[9].dest_ball_id = 0;
+/*  set.balls[9].dest_set = "bush3";
+  set.balls[9].dest_ball_id = 0;*/
   set.addLeafBall(0,1,2);
   set.addLeafBall(0,2,3);
   set.addLeafBall(0,3,4);
@@ -401,7 +401,8 @@ auto tree_test = [&]()
   double peak = 1.0; // 1 is normal
   double offset = std::sqrt(1.0);
   double rmid = std::sqrt(mid);
-  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
+  double mobility = 1.0;
+  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, mobility);
   for (int i = 0; i<5; i++)
   {
     float ang1 = (double)i * 2.0*pi/5.0;
@@ -412,10 +413,10 @@ auto tree_test = [&]()
     {
       double H = std::sqrt(4.0*h*h + (ll-h)*(ll-h));
       double R = std::sqrt(H*H - r*r);
-      set.balls[1+i].initSphere((ll/std::sqrt(5.0))*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), R, 0.0); // top ring
+      set.balls[1+i].initSphere((ll/std::sqrt(5.0))*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), R, mobility); // top ring
     }
     else
-      set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r, 0.0); // top ring
+      set.balls[1+i].initSphere(h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), r, mobility); // top ring
     set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
     set.conn(1+i, 6+i) = 2; // zig
     set.conn(6+i, 1+ (i+1)%5) = 2; // zag
@@ -428,12 +429,11 @@ auto tree_test = [&]()
       scale *= offset;
     else
       scale /= offset;
-    double moveability = 1.0;//(6+i)==6 || (6+i)==10 ? 0.0 : 1.0;
-    set.balls[6+i].initSphere(scale*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -scale), r, moveability); // bottom ring
+    set.balls[6+i].initSphere(scale*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -scale), r, mobility); // bottom ring
     set.conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
     set.conn(6+i,11) = 2; // bottom fan
   }
-  set.balls[11].initSphere(Eigen::Vector3d(0,0,-peak), offset*offset*ridge*ridge*peak*r);
+  set.balls[11].initSphere(Eigen::Vector3d(0,0,-peak), offset*offset*ridge*ridge*peak*r, mobility);
 
   set.addLeafBalls({0,1,2,4,5,6,7,8,9,10,11});
   set.leaf_union = false;
@@ -453,7 +453,8 @@ auto hill_test = [&]()
   double h = std::sqrt(1.0 / 5.0);
   double r = std::sqrt(1.0 - h); // 0.743
 
-  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, 0.0);
+  double mobility = 1.0;
+  set.balls[0].initSphere(Eigen::Vector3d(0,0,1), r, mobility);
   for (int i = 0; i<5; i++)
   {
     float ang1 = (double)i * 2.0*pi/5.0;
@@ -461,15 +462,14 @@ auto hill_test = [&]()
 
     set.conn(0,1+i) = 2; // top fan
     double sc = (1+i)==3 || (1+i)==4 ? bulge : 1.0;
-    double moveability = (1+i)==1 || (1+i)==2 || (i+i)==5 ? 0.0 : 1.0;
     if ((1+i)==2)
     {
       double H = std::sqrt(4.0*h*h + (ll-h)*(ll-h));
       double R = std::sqrt(H*H - r*r);
-      set.balls[1+i].initSphere((ll/std::sqrt(5.0))*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), R, 0.0); // top ring
+      set.balls[1+i].initSphere((ll/std::sqrt(5.0))*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), R, mobility); // top ring
     }
     else
-      set.balls[1+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), sc*r, moveability); // top ring
+      set.balls[1+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang1),2.0*std::sin(ang1), 1), sc*r, mobility); // top ring
     set.conn(1+i, 1 + (i+1)%5) = 2; // around top ring
     set.conn(1+i, 6+i) = 2; // zig
     set.conn(6+i, 1+ (i+1)%5) = 2; // zag
@@ -477,12 +477,11 @@ auto hill_test = [&]()
     sc = (6+i)==7 || (6+i) == 8 || (6+i)==9 ? bulge : 1.0;
     if ((6+i) == 8)
       sc *= bulge*bulge;
-    moveability = (6+i)==6 || (6+i)==10 ? 0.0 : 1.0;
-    set.balls[6+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -1), sc*r, moveability); // bottom ring
+    set.balls[6+i].initSphere(sc*h*Eigen::Vector3d(2.0*std::cos(ang2),2.0*std::sin(ang2), -1), sc*r, mobility); // bottom ring
     set.conn(6+i, 6 + (i+1)%5) = 2; // around bottom ring
     set.conn(6+i,11) = 2; // bottom fan
   }
-  set.balls[11].initSphere(Eigen::Vector3d(0,0,-bulge), bulge*r);
+  set.balls[11].initSphere(Eigen::Vector3d(0,0,-bulge), bulge*r, mobility);
 
 /*  set.balls[0].dest_set = "tree-test";
   set.balls[0].dest_ball_id = 0;
